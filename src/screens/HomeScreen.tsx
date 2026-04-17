@@ -1,10 +1,10 @@
-import React from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   StatusBar,
+  Platform,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -70,7 +70,7 @@ const HomeScreen = () => {
               { value: '100%', label: 'Accurate' },
               { value: 'Free', label: 'Always' },
             ].map((stat, i) => (
-              <GlassCard key={i} style={styles.statCard} padding={12}>
+              <GlassCard key={i} style={styles.statCard} padding={Platform.OS === 'android' ? 14 : 12}>
                 <Text style={styles.statValue}>{stat.value}</Text>
                 <Text style={styles.statLabel}>{stat.label}</Text>
               </GlassCard>
@@ -78,7 +78,11 @@ const HomeScreen = () => {
           </View>
 
           {/* Test flow */}
-          <GlassCard variant="subtle" style={styles.flowCard} padding={14}>
+          <GlassCard 
+            variant="subtle" 
+            style={styles.flowCard} 
+            padding={Platform.select({ ios: 14, android: 22 })}
+          >
             <Text style={styles.flowTitle}>Diagnostic Flow</Text>
             <View style={styles.flowGrid}>
               {FLOW_STEPS.map((step, i) => (
@@ -115,7 +119,11 @@ const HomeScreen = () => {
 const styles = StyleSheet.create({
   bg: { flex: 1 },
   safe: { flex: 1 },
-  scroll: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: 40 },
+  scroll: { 
+    paddingHorizontal: 20, 
+    paddingTop: 10, 
+    paddingBottom: Platform.OS === 'android' ? 80 : 40 
+  },
   hero: { alignItems: 'center', marginTop: 10, marginBottom: 16 },
   iconCircle: {
     width: 80,
@@ -180,7 +188,8 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'space-between',
     width: '100%',
-    rowGap: 14,
+    rowGap: Platform.select({ ios: 14, android: 24 }),
+    paddingBottom: Platform.OS === 'android' ? 10 : 0,
   },
   flowItem: {
     width: '30%',

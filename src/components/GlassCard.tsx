@@ -34,14 +34,14 @@ const GlassCard: React.FC<GlassCardProps> = ({
       : GLASS.border;
 
   return (
-    <View style={[styles.wrapper, { borderColor }, style]}>
+    <View style={[styles.wrapper, { borderColor, borderRadius: 16 }, style]}>
       <LinearGradient
         colors={bgGradient}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
+        style={[StyleSheet.absoluteFill, { borderRadius: 16 }]}
       />
-      <View style={[styles.content, { padding }]}>
+      <View style={[styles.content, { padding, flex: 1 }]}>
         {children}
       </View>
     </View>
@@ -51,16 +51,13 @@ const GlassCard: React.FC<GlassCardProps> = ({
 const styles = StyleSheet.create({
   wrapper: {
     borderWidth: 1,
-    borderRadius: 16,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)', // Unified glass base
   },
   content: {
     width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,12 +7,16 @@ import {
   StatusBar,
   Platform,
   PermissionsAndroid,
+  Linking,
+  Alert,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import BleManager from 'react-native-ble-manager';
+import Geolocation from 'react-native-geolocation-service';
 import { RootStackParamList } from '../navigation/types';
 import GlassButton from '../components/GlassButton';
 import GlassCard from '../components/GlassCard';
@@ -23,7 +27,7 @@ import { GRADIENTS, TEXT, GLASS, STATUS } from '../theme/colors';
 import { useDiagnostic } from '../store/DiagnosticContext';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Permissions'>;
-type PermStatus = 'pending' | 'granted' | 'denied';
+type PermStatus = 'pending' | 'granted' | 'denied' | 'disabled';
 
 interface PermissionItem {
   id: string;
@@ -56,12 +60,12 @@ const PERMISSIONS: PermissionItem[] = [
   },
   {
     id: 'location',
-    title: 'Location',
-    description: 'Required to test GPS and connectivity',
+    title: 'Location Settings',
+    description: 'Required to test GPS and Scan WiFi',
     icon: 'location-outline',
     iconColor: '#38ef7d',
     androidPermission: PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-    required: false,
+    required: true,
   },
   {
     id: 'storage',
@@ -73,7 +77,7 @@ const PERMISSIONS: PermissionItem[] = [
       Number(Platform.Version) >= 33
         ? undefined
         : PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
-    required: false,
+    required: true,
   },
   {
     id: 'sensors',
@@ -82,7 +86,19 @@ const PERMISSIONS: PermissionItem[] = [
     icon: 'compass-outline',
     iconColor: '#ef473a',
     androidPermission: PermissionsAndroid.PERMISSIONS.BODY_SENSORS,
-    required: false,
+    required: true,
+  },
+  {
+    id: 'connectivity',
+    title: 'Nearby Devices (BT)',
+    description: 'Bluetooth must be ON for diagnostic tests',
+    icon: 'bluetooth-outline',
+    iconColor: '#4facfe',
+    androidPermission: 
+      Number(Platform.Version) >= 31 
+        ? (PermissionsAndroid.PERMISSIONS as any).BLUETOOTH_CONNECT 
+        : PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
+    required: true,
   },
 ];
 
@@ -94,6 +110,24 @@ const PermissionsScreen = () => {
   );
   const [modalVisible, setModalVisible] = useState(false);
   const [currentPermission, setCurrentPermission] = useState<PermissionItem | null>(null);
+
+  useEffect(() => {
+    BleManager.start({ showAlert: false });
+    const timer = setInterval(checkHardwareStatus, 3000);
+    checkHardwareStatus();
+    return () => clearInterval(timer);
+  }, []);
+
+  const checkHardwareStatus = async () => {
+    if (Platform.OS === 'android') {
+      try {
+        await BleManager.checkState();
+      } catch (e) {
+        console.log('Hardware check error', e);
+      }
+    }
+  };
+
   const showPermissionModal = (perm: PermissionItem) => {
     setCurrentPermission(perm);
     setModalVisible(true);
@@ -103,68 +137,94 @@ const PermissionsScreen = () => {
     setModalVisible(false);
     try {
       if (Platform.OS === 'android' && perm.androidPermission) {
-        const result = await PermissionsAndroid.request(perm.androidPermission as any, {
-          title: `${perm.title} Permission`,
-          message: perm.description,
-          buttonPositive: 'Allow',
-          buttonNegative: 'Deny',
-        });
-        setStatuses(prev => ({
-          ...prev,
-          [perm.id]: result === PermissionsAndroid.RESULTS.GRANTED ? 'granted' : 'pending',
-        }));
+        const result = await PermissionsAndroid.request(perm.androidPermission as any);
+        
+        if (result === PermissionsAndroid.RESULTS.GRANTED) {
+          if (perm.id === 'location') {
+            setStatuses(prev => ({ ...prev, [perm.id]: 'granted' }));
+            // Trigger native "Turn on Location?" system dialog
+            Geolocation.getCurrentPosition(
+              () => {},
+              (error) => {
+                if (error.code === 2) {
+                   Linking.sendIntent('android.settings.LOCATION_SOURCE_SETTINGS');
+                }
+              },
+              { enableHighAccuracy: true, timeout: 1000, maximumAge: 0 }
+            );
+            // Trigger WiFi settings panel
+            if (Number(Platform.Version) >= 29) {
+               Linking.sendIntent('android.settings.panel.action.WIFI');
+            }
+          } else if (perm.id === 'connectivity') {
+            try {
+              await BleManager.enableBluetooth();
+              setStatuses(prev => ({ ...prev, [perm.id]: 'granted' }));
+            } catch {
+              setStatuses(prev => ({ ...prev, [perm.id]: 'disabled' }));
+              Linking.sendIntent('android.settings.BLUETOOTH_SETTINGS');
+            }
+          } else {
+            setStatuses(prev => ({ ...prev, [perm.id]: 'granted' }));
+          }
+        } else {
+          setStatuses(prev => ({ ...prev, [perm.id]: 'pending' }));
+        }
       } else {
         setStatuses(prev => ({ ...prev, [perm.id]: 'granted' }));
       }
-    } catch {
+    } catch (e) {
+      console.log('Permission error', e);
       setStatuses(prev => ({ ...prev, [perm.id]: 'pending' }));
     }
   };
 
   const proceedToNext = () => {
-    const allGranted = PERMISSIONS.filter(p => p.required).every(
-      p => statuses[p.id] === 'granted',
-    );
+    const allReady = PERMISSIONS.every(p => statuses[p.id] === 'granted');
+    if (!allReady) {
+      Alert.alert('Incomplete', 'Please grant all permissions and enable hardware to continue.');
+      return;
+    }
+
     setResult('permissions', {
-      status: allGranted ? 'pass' : 'warning',
-      details: `${Object.values(statuses).filter(s => s === 'granted').length}/${PERMISSIONS.length} granted`,
+      status: 'pass',
+      details: `${PERMISSIONS.length}/${PERMISSIONS.length} ready`,
     });
     navigation.navigate('DeviceInfo');
   };
 
   const getStatusBadge = (status: PermStatus) => {
-    if (status === 'granted') return { status: 'pass' as const, label: 'Granted' };
-    if (status === 'denied') return { status: 'fail' as const, label: 'Denied' };
-    return { status: 'pending' as const, label: 'Pending' };
+    if (status === 'granted') return { status: 'pass' as const, label: 'Ready' };
+    if (status === 'disabled') return { status: 'fail' as const, label: 'BT Required' };
+    return { status: 'pending' as const, label: 'Action Required' };
   };
 
-  const grantedCount = Object.values(statuses).filter(s => s === 'granted').length;
+  const readyCount = Object.values(statuses).filter(s => s === 'granted').length;
 
   return (
     <LinearGradient colors={GRADIENTS.background} style={styles.bg}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <SafeAreaView style={styles.safe}>
         <ScreenHeader
-          title="Permissions"
-          subtitle="Grant access to run all diagnostic tests"
+          title="Setup & Permissions"
+          subtitle="Compulsory hardware & permission check"
           step={1}
           onBack={() => navigation.goBack()}
           iconName="shield-checkmark-outline"
         />
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-          {/* Progress indicator */}
           <GlassCard variant="strong" style={styles.progressCard} padding={12}>
             <View style={styles.progressRow}>
-              <Icon name="checkmark-circle" size={24} color={STATUS.pass} />
+              <Icon name="hardware-chip-outline" size={24} color={STATUS.pass} />
               <View style={styles.progressInfo}>
-                <Text style={styles.progressValue}>{grantedCount}/{PERMISSIONS.length}</Text>
+                <Text style={styles.progressValue}>{readyCount}/{PERMISSIONS.length} Hardware/Perms Ready</Text>
               </View>
             </View>
           </GlassCard>
 
-          {/* Permission items */}
           {PERMISSIONS.map(perm => {
-            const badge = getStatusBadge(statuses[perm.id]);
+            const status = statuses[perm.id];
+            const badge = getStatusBadge(status);
             return (
               <GlassCard key={perm.id} style={styles.permCard} padding={12}>
                 <View style={styles.permRow}>
@@ -174,20 +234,18 @@ const PermissionsScreen = () => {
                   <View style={styles.permInfo}>
                     <View style={styles.permTitleRow}>
                       <Text style={styles.permTitle}>{perm.title}</Text>
-                      {perm.required && (
-                        <View style={styles.requiredBadge}>
-                          <Text style={styles.requiredText}>Required</Text>
-                        </View>
-                      )}
+                      <View style={styles.requiredBadge}>
+                        <Text style={styles.requiredText}>Compulsory</Text>
+                      </View>
                     </View>
                     <Text style={styles.permDesc}>{perm.description}</Text>
                   </View>
                   <View style={styles.permStatus}>
-                    {statuses[perm.id] === 'pending' ? (
+                    {status !== 'granted' ? (
                       <GlassButton
-                        title="Allow"
+                        title={status === 'disabled' ? 'Enable' : 'Allow'}
                         onPress={() => showPermissionModal(perm)}
-                        variant="glass"
+                        variant={status === 'disabled' ? 'primary' : 'glass'}
                         size="sm"
                       />
                     ) : (
@@ -200,12 +258,12 @@ const PermissionsScreen = () => {
           })}
 
           <GlassButton
-            title="Continue"
+            title="Continue Diagnosis"
             onPress={proceedToNext}
             iconName="arrow-forward"
             size="lg"
-            variant={grantedCount === PERMISSIONS.length ? 'primary' : 'glass'}
-            disabled={grantedCount < PERMISSIONS.length}
+            variant={readyCount === PERMISSIONS.length ? 'primary' : 'glass'}
+            disabled={readyCount < PERMISSIONS.length}
             style={styles.continueBtn}
           />
         </ScrollView>
@@ -214,11 +272,14 @@ const PermissionsScreen = () => {
       {currentPermission && (
         <GlassModal
           visible={modalVisible}
-          title={`Allow ${currentPermission.title} Access`}
-          message={`XPhone Diagnose needs ${currentPermission.title.toLowerCase()} access to run the ${currentPermission.title.toLowerCase()} diagnostic test.\n\n${currentPermission.description}`}
+          title={statuses[currentPermission.id] === 'disabled' ? `Turn ON ${currentPermission.title}` : `Allow ${currentPermission.title}`}
+          message={statuses[currentPermission.id] === 'disabled' 
+            ? `Please turn on your ${currentPermission.title.split(' ')[0]} hardware to proceed with the diagnostic test.`
+            : `XPhone Diagnose needs ${currentPermission.title.toLowerCase()} access to run the ${currentPermission.title.toLowerCase()} diagnostic test.`
+          }
           iconName={currentPermission.icon}
           iconColor={currentPermission.iconColor}
-          confirmText="Allow"
+          confirmText={statuses[currentPermission.id] === 'disabled' ? 'Turn ON' : 'Allow Access'}
           cancelText="Cancel"
           onConfirm={() => requestPermission(currentPermission)}
           onCancel={() => setModalVisible(false)}
@@ -235,7 +296,7 @@ const styles = StyleSheet.create({
   progressCard: { marginBottom: 12 },
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   progressInfo: { flex: 1 },
-  progressValue: { color: TEXT.primary, fontSize: 20, fontWeight: '800' },
+  progressValue: { color: TEXT.primary, fontSize: 16, fontWeight: '800' },
   permCard: { marginBottom: 8 },
   permRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   permIcon: {
