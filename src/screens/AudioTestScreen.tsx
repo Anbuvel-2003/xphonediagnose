@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   StatusBar,
   TouchableOpacity,
+  TextInput,
+  Alert,
+  Platform,
+  PermissionsAndroid,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -16,9 +20,12 @@ import GlassButton from '../components/GlassButton';
 import GlassCard from '../components/GlassCard';
 import GlassModal from '../components/GlassModal';
 import ScreenHeader from '../components/ScreenHeader';
-import StatusBadge from '../components/StatusBadge';
-import { GRADIENTS, TEXT, GLASS } from '../theme/colors';
+import { GRADIENTS, TEXT, GLASS, STATUS } from '../theme/colors';
 import { useDiagnostic } from '../store/DiagnosticContext';
+
+// Audio libraries
+import Tts from 'react-native-tts';
+import AudioRecorderPlayer from 'react-native-audio-recorder-player';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'AudioTest'>;
 type CheckStatus = 'pending' | 'pass' | 'fail';
@@ -29,7 +36,7 @@ interface AudioCheck {
   description: string;
   icon: string;
   iconColor: string;
-  instruction: string;
+  digits: number;
 }
 
 const AUDIO_CHECKS: AudioCheck[] = [
@@ -39,7 +46,7 @@ const AUDIO_CHECKS: AudioCheck[] = [
     description: 'Main speaker output quality',
     icon: 'volume-high-outline',
     iconColor: '#4facfe',
-    instruction: 'Increase volume and listen for clear, distortion-free audio',
+    digits: 4,
   },
   {
     id: 'earpiece',
@@ -47,7 +54,7 @@ const AUDIO_CHECKS: AudioCheck[] = [
     description: 'Top speaker for calls',
     icon: 'ear-outline',
     iconColor: '#a78bfa',
-    instruction: 'Hold phone to your ear and check call audio quality',
+    digits: 3,
   },
   {
     id: 'microphone',
@@ -55,30 +62,124 @@ const AUDIO_CHECKS: AudioCheck[] = [
     description: 'Voice recording quality',
     icon: 'mic-outline',
     iconColor: '#38ef7d',
-    instruction: 'Speak into the microphone and check for clear recording',
-  },
-  {
-    id: 'headphone',
-    title: '3.5mm Jack',
-    description: 'Headphone jack (if available)',
-    icon: 'headset-outline',
-    iconColor: '#f7971e',
-    instruction: 'Connect headphones and check audio output',
+    digits: 2,
   },
 ];
+
+const audioRecorderPlayer = new AudioRecorderPlayer();
 
 const AudioTestScreen = () => {
   const navigation = useNavigation<Nav>();
   const { setResult } = useDiagnostic();
-  const [statuses, setStatuses] = useState<Record<string, CheckStatus>>(
-    Object.fromEntries(AUDIO_CHECKS.map(c => [c.id, 'pending'])),
-  );
-  const [instructionModal, setInstructionModal] = useState(false);
-  const [currentCheck, setCurrentCheck] = useState<AudioCheck | null>(null);
+  const [statuses, setStatuses] = useState<Record<string, CheckStatus>>({
+    speaker: 'pending',
+    earpiece: 'pending',
+    microphone: 'pending',
+  });
 
-  const showInstruction = (check: AudioCheck) => {
+  const [testModal, setTestModal] = useState(false);
+  const [currentCheck, setCurrentCheck] = useState<AudioCheck | null>(null);
+  const [randomCode, setRandomCode] = useState('');
+  const [userInput, setUserInput] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordPath, setRecordPath] = useState('');
+  const [isAudioTriggered, setIsAudioTriggered] = useState(false);
+  const [isDoneTesting, setIsDoneTesting] = useState(false);
+
+  const requestPermissions = async () => {
+    if (Platform.OS === 'android') {
+      try {
+        const grants = await PermissionsAndroid.requestMultiple([
+          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+          PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+          PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
+        ]);
+
+        if (
+          grants['android.permission.RECORD_AUDIO'] === PermissionsAndroid.RESULTS.GRANTED &&
+          grants['android.permission.WRITE_EXTERNAL_STORAGE'] === PermissionsAndroid.RESULTS.GRANTED &&
+          grants['android.permission.READ_EXTERNAL_STORAGE'] === PermissionsAndroid.RESULTS.GRANTED
+        ) {
+          console.log('Permissions granted');
+        } else {
+          console.log('All required permissions not granted');
+        }
+      } catch (err) {
+        console.warn(err);
+      }
+    }
+  };
+
+  useEffect(() => {
+    Tts.getInitStatus().then(() => {
+      Tts.setDefaultLanguage('en-US');
+      Tts.setDefaultRate(0.5);
+    });
+    requestPermissions();
+
+    return () => {
+      Tts.stop();
+      audioRecorderPlayer.stopPlayer();
+      audioRecorderPlayer.removePlayBackListener();
+    };
+  }, []);
+
+  const generateCode = (len: number) => {
+    let code = '';
+    for (let i = 0; i < len; i++) {
+      code += Math.floor(Math.random() * 10);
+    }
+    return code;
+  };
+
+  const startTest = (check: AudioCheck) => {
+    const code = generateCode(check.digits);
+    setRandomCode(code);
+    setUserInput('');
     setCurrentCheck(check);
-    setInstructionModal(true);
+    setTestModal(true);
+    setIsDoneTesting(false);
+    setIsAudioTriggered(false);
+  };
+
+  const handleAllowAudio = () => {
+    setIsAudioTriggered(true);
+    speakCode(randomCode);
+  };
+
+  const speakCode = (code: string) => {
+    const digits = code.split('').join(' . '); // Add pause between digits
+    Tts.speak(digits);
+  };
+
+  const handleVerify = () => {
+    if (userInput === randomCode) {
+      markStatus(currentCheck?.id || '', 'pass');
+      setTestModal(false);
+    } else {
+      Alert.alert('Incorrect', 'The code you entered does not match. Try again?');
+    }
+  };
+
+  const onStartRecord = async () => {
+    const result = await audioRecorderPlayer.startRecorder();
+    setIsRecording(true);
+    setRecordPath(result);
+  };
+
+  const onStopRecord = async () => {
+    await audioRecorderPlayer.stopRecorder();
+    setIsRecording(false);
+    setIsDoneTesting(true);
+  };
+
+  const onStartPlay = async () => {
+    await audioRecorderPlayer.startPlayer(recordPath);
+    audioRecorderPlayer.addPlayBackListener((e) => {
+      if (e.currentPosition === e.duration) {
+        audioRecorderPlayer.stopPlayer();
+      }
+    });
   };
 
   const markStatus = (id: string, status: CheckStatus) => {
@@ -89,10 +190,11 @@ const AudioTestScreen = () => {
     const vals = Object.values(statuses);
     const passed = vals.filter(s => s === 'pass').length;
     const failed = vals.filter(s => s === 'fail').length;
+    
     setResult('audio', {
       status: failed > 0 ? (failed >= 2 ? 'fail' : 'warning') : 'pass',
-      score: Math.round((passed / vals.filter(s => s !== 'pending').length || 0) * 100),
-      details: `${passed} passed, ${failed} failed`,
+      score: Math.round((passed / 3) * 100),
+      details: `${passed}/3 components working`,
     });
     navigation.navigate('CameraTest');
   };
@@ -105,39 +207,28 @@ const AudioTestScreen = () => {
       <SafeAreaView style={styles.safe}>
         <ScreenHeader
           title="Audio Test"
-          subtitle="Test speakers, microphone, and audio output"
+          subtitle="Precision test for voice and audio"
           step={5}
           onBack={() => navigation.goBack()}
           iconName="volume-high-outline"
         />
         <View style={styles.content}>
-          {/* Volume visual */}
           <GlassCard variant="strong" style={styles.visualCard}>
             <View style={styles.visualRow}>
-              <LinearGradient
-                colors={['rgba(79,172,254,0.2)', 'rgba(0,242,254,0.1)']}
-                style={styles.visualIcon}
-              >
-                <Icon name="musical-notes-outline" size={36} color="#4facfe" />
-              </LinearGradient>
+              <View style={styles.visualIconWrapper}>
+                <Icon name="musical-notes-outline" size={32} color={STATUS.running} />
+              </View>
               <View style={styles.visualBars}>
-                {[0.4, 0.7, 1, 0.8, 0.5, 0.9, 0.6].map((h, i) => (
-                  <LinearGradient
-                    key={i}
-                    colors={['#4facfe', '#00f2fe']}
-                    style={[styles.bar, { height: 40 * h }]}
-                  />
+                {[0.4, 0.7, 1.0, 0.8, 1.0, 0.7, 0.4].map((h, i) => (
+                  <View key={i} style={[styles.bar, { height: 40 * h, backgroundColor: STATUS.running }]} />
                 ))}
               </View>
             </View>
-            <Text style={styles.visualText}>
-              Use device controls to adjust volume before testing
-            </Text>
+            <Text style={styles.visualText}>Verification codes will be played through speakers</Text>
           </GlassCard>
 
-          {/* Checks */}
           {AUDIO_CHECKS.map(check => (
-            <GlassCard key={check.id} style={styles.checkCard}>
+            <GlassCard key={check.id} style={styles.checkCard} padding={16}>
               <View style={styles.checkRow}>
                 <View style={[styles.checkIcon, { borderColor: check.iconColor + '44' }]}>
                   <Icon name={check.icon} size={22} color={check.iconColor} />
@@ -148,26 +239,16 @@ const AudioTestScreen = () => {
                 </View>
                 <View style={styles.checkActions}>
                   {statuses[check.id] === 'pending' ? (
-                    <GlassButton
-                      title="Test"
-                      onPress={() => showInstruction(check)}
-                      variant="glass"
-                      size="sm"
-                    />
+                    <TouchableOpacity style={styles.testBtn} onPress={() => startTest(check)}>
+                      <Text style={styles.testBtnText}>Start Verification</Text>
+                    </TouchableOpacity>
                   ) : (
-                    <View style={styles.resultBtns}>
-                      <TouchableOpacity
-                        onPress={() => markStatus(check.id, 'pass')}
-                        style={[styles.miniBtn, statuses[check.id] === 'pass' && styles.miniBtnActive]}
-                      >
-                        <Icon name="checkmark" size={14} color={statuses[check.id] === 'pass' ? '#38ef7d' : TEXT.muted} />
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => markStatus(check.id, 'fail')}
-                        style={[styles.miniBtn, statuses[check.id] === 'fail' && styles.miniBtnFail]}
-                      >
-                        <Icon name="close" size={14} color={statuses[check.id] === 'fail' ? '#ef473a' : TEXT.muted} />
-                      </TouchableOpacity>
+                    <View style={styles.statusBox}>
+                      <Icon 
+                        name={statuses[check.id] === 'pass' ? 'checkmark-circle' : 'close-circle'} 
+                        size={24} 
+                        color={statuses[check.id] === 'pass' ? '#38ef7d' : '#ef473a'} 
+                      />
                     </View>
                   )}
                 </View>
@@ -176,36 +257,110 @@ const AudioTestScreen = () => {
           ))}
 
           <GlassButton
-            title={testedCount === 0 ? 'Test Audio Components' : `Continue (${testedCount} tested)`}
+            title={testedCount < 3 ? `Verify All Components (${testedCount}/3)` : "Continue to Camera"}
             onPress={handleFinish}
             iconName="arrow-forward"
             size="lg"
-            variant={testedCount > 0 ? 'primary' : 'glass'}
+            variant={testedCount === 3 ? 'success' : 'glass'}
             style={styles.continueBtn}
+            disabled={testedCount < 2}
           />
         </View>
       </SafeAreaView>
 
-      {currentCheck && (
-        <GlassModal
-          visible={instructionModal}
-          title={`Test ${currentCheck.title}`}
-          message={currentCheck.instruction}
-          iconName={currentCheck.icon}
-          iconColor={currentCheck.iconColor}
-          confirmText="Mark Pass"
-          cancelText="Mark Fail"
-          confirmVariant="success"
-          onConfirm={() => {
-            markStatus(currentCheck.id, 'pass');
-            setInstructionModal(false);
-          }}
-          onCancel={() => {
-            markStatus(currentCheck.id, 'fail');
-            setInstructionModal(false);
-          }}
-        />
-      )}
+      <GlassModal
+        visible={testModal}
+        title={currentCheck?.title || ''}
+        message=""
+        iconName={currentCheck?.icon || ''}
+        iconColor={currentCheck?.iconColor}
+        showButtons={false}
+      >
+        <View style={styles.modalContent}>
+          {currentCheck?.id === 'microphone' ? (
+            <View style={styles.micTestContainer}>
+              <Text style={styles.micGuide}>Read these numbers clearly:</Text>
+              <Text style={styles.micDigits}>{randomCode}</Text>
+              
+              {!isDoneTesting ? (
+                <TouchableOpacity 
+                  style={[styles.recordBtn, isRecording && styles.recordBtnActive]} 
+                  onPressIn={onStartRecord}
+                  onPressOut={onStopRecord}
+                >
+                  <Icon name={isRecording ? 'mic' : 'mic-outline'} size={40} color="#fff" />
+                  <Text style={styles.recordLabel}>{isRecording ? 'Recording...' : 'Hold to Record'}</Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.playbackContainer}>
+                  <GlassButton 
+                    title="Play Back" 
+                    onPress={onStartPlay} 
+                    iconName="play-outline" 
+                    variant="glass" 
+                    style={{ marginBottom: 12 }}
+                  />
+                  <View style={styles.resultRow}>
+                    <GlassButton 
+                      title="Clear & Correct" 
+                      onPress={() => { markStatus('microphone', 'pass'); setTestModal(false); }} 
+                      variant="success" 
+                      style={{ flex: 1 }} 
+                    />
+                    <GlassButton 
+                      title="Fail" 
+                      onPress={() => { markStatus('microphone', 'fail'); setTestModal(false); }} 
+                      variant="danger" 
+                      style={{ width: 80 }} 
+                    />
+                  </View>
+                </View>
+              )}
+            </View>
+          ) : (
+            <View style={styles.speakerTestContainer}>
+              {!isAudioTriggered ? (
+                <View style={styles.allowContainer}>
+                  <View style={styles.speakerVisualCircle}>
+                    <Icon name={currentCheck?.icon || 'volume-high'} size={48} color={currentCheck?.iconColor} />
+                  </View>
+                  <Text style={styles.allowTitle}>Listen to the code</Text>
+                  <Text style={styles.allowDesc}>Tap allow to hear the verification digits through the {currentCheck?.title.toLowerCase()}.</Text>
+                  <GlassButton 
+                    title="Allow & Play" 
+                    onPress={handleAllowAudio} 
+                    variant="primary" 
+                    size="lg"
+                  />
+                </View>
+              ) : (
+                <>
+                  <Text style={styles.speakerGuide}>Enter the code you heard:</Text>
+                  <TextInput
+                    style={styles.codeInput}
+                    placeholder="XXXX"
+                    placeholderTextColor="rgba(255,255,255,0.2)"
+                    keyboardType="number-pad"
+                    maxLength={currentCheck?.digits}
+                    value={userInput}
+                    onChangeText={setUserInput}
+                    autoFocus
+                  />
+                  <TouchableOpacity style={styles.replayBtn} onPress={() => speakCode(randomCode)}>
+                    <Icon name="refresh-outline" size={16} color={TEXT.accent} />
+                    <Text style={styles.replayText}>Replay Audio</Text>
+                  </TouchableOpacity>
+                  
+                  <View style={styles.modalActionRow}>
+                    <GlassButton title="Verify" onPress={handleVerify} variant="primary" style={{ flex: 1 }} />
+                    <GlassButton title="Fail" onPress={() => { markStatus(currentCheck?.id || '', 'fail'); setTestModal(false); }} variant="danger" style={{ width: 80 }} />
+                  </View>
+                </>
+              )}
+            </View>
+          )}
+        </View>
+      </GlassModal>
     </LinearGradient>
   );
 };
@@ -214,49 +369,98 @@ const styles = StyleSheet.create({
   bg: { flex: 1 },
   safe: { flex: 1 },
   content: { flex: 1, padding: 20 },
-  visualCard: { marginBottom: 16 },
-  visualRow: { flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 10 },
-  visualIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
+  visualCard: { marginBottom: 20 },
+  visualRow: { flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 12 },
+  visualIconWrapper: {
+    width: 60,
+    height: 60,
+    borderRadius: 18,
+    backgroundColor: 'rgba(79,172,254,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(79,172,254,0.3)',
   },
   visualBars: { flexDirection: 'row', alignItems: 'flex-end', gap: 4, height: 40 },
-  bar: { width: 8, borderRadius: 4 },
-  visualText: { color: TEXT.secondary, fontSize: 12 },
-  checkCard: { marginBottom: 10 },
-  checkRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  bar: { width: 6, borderRadius: 3 },
+  visualText: { color: TEXT.secondary, fontSize: 13, textAlign: 'center' },
+  checkCard: { marginBottom: 12 },
+  checkRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   checkIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    width: 48,
+    height: 48,
+    borderRadius: 14,
     backgroundColor: GLASS.backgroundStrong,
-    borderWidth: 1,
+    borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
   },
   checkInfo: { flex: 1 },
-  checkTitle: { color: TEXT.primary, fontSize: 15, fontWeight: '700', marginBottom: 2 },
-  checkDesc: { color: TEXT.muted, fontSize: 12 },
-  checkActions: { alignItems: 'flex-end' },
-  resultBtns: { flexDirection: 'row', gap: 6 },
-  miniBtn: {
-    width: 30,
-    height: 30,
+  checkTitle: { color: TEXT.primary, fontSize: 16, fontWeight: '700' },
+  checkDesc: { color: TEXT.muted, fontSize: 12, marginTop: 2 },
+  checkActions: { minWidth: 100, alignItems: 'flex-end' },
+  testBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 8,
-    backgroundColor: GLASS.backgroundStrong,
+    backgroundColor: 'rgba(255,255,255,0.1)',
     borderWidth: 1,
-    borderColor: GLASS.border,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  testBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  statusBox: { paddingRight: 4 },
+  continueBtn: { marginTop: 'auto' },
+  modalContent: { paddingVertical: 10 },
+  speakerTestContainer: { gap: 16 },
+  speakerGuide: { color: TEXT.secondary, fontSize: 15, textAlign: 'center' },
+  codeInput: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    color: '#fff',
+    fontSize: 32,
+    fontWeight: '800',
+    textAlign: 'center',
+    letterSpacing: 10,
+    paddingVertical: 12,
+  },
+  replayBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  replayText: { color: TEXT.accent, fontSize: 14, fontWeight: '600' },
+  modalActionRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
+  micTestContainer: { alignItems: 'center', gap: 16 },
+  micGuide: { color: TEXT.secondary, fontSize: 15 },
+  micDigits: { color: '#fff', fontSize: 48, fontWeight: '900', letterSpacing: 8 },
+  recordBtn: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 4,
+    borderColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
   },
-  miniBtnActive: { borderColor: '#38ef7d', backgroundColor: 'rgba(56,239,125,0.15)' },
-  miniBtnFail: { borderColor: '#ef473a', backgroundColor: 'rgba(239,71,58,0.15)' },
-  continueBtn: { marginTop: 8 },
+  recordBtnActive: {
+    borderColor: '#ef473a',
+    backgroundColor: 'rgba(239,71,58,0.2)',
+  },
+  recordLabel: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  playbackContainer: { width: '100%' },
+  resultRow: { flexDirection: 'row', gap: 10 },
+  allowContainer: { alignItems: 'center', paddingVertical: 10 },
+  speakerVisualCircle: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  allowTitle: { color: '#fff', fontSize: 22, fontWeight: '800', marginBottom: 8 },
+  allowDesc: { color: TEXT.secondary, fontSize: 14, textAlign: 'center', marginBottom: 24, lineHeight: 20 },
 });
 
 export default AudioTestScreen;

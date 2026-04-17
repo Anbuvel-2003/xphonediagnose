@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   StatusBar,
   Dimensions,
+  Platform,
+  ScrollView,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -103,68 +105,73 @@ const DisplayTestScreen = () => {
           onBack={() => navigation.goBack()}
           iconName="tv-outline"
         />
-        <View style={styles.content}>
-          {/* Screen info */}
-          <GlassCard variant="strong" style={styles.infoCard}>
-            <View style={styles.infoRow}>
-              <View style={styles.infoItem}>
-                <Text style={styles.infoValue}>{Math.round(width)}×{Math.round(height)}</Text>
-                <Text style={styles.infoLabel}>Resolution</Text>
-              </View>
-              <View style={styles.divider} />
-              <View style={styles.infoItem}>
-                <Text style={styles.infoValue}>{testsDone.size}/{COLOR_TESTS.length}</Text>
-                <Text style={styles.infoLabel}>Tests Done</Text>
-              </View>
-            </View>
-          </GlassCard>
-
-          {/* Color buttons */}
-          <Text style={styles.sectionTitle}>Color Fill Tests</Text>
-          <Text style={styles.sectionSub}>Tap each color to fill the screen. Look for dead pixels or incorrect colors.</Text>
-
-          <View style={styles.colorGrid}>
-            {COLOR_TESTS.map((item) => (
-              <TouchableOpacity
-                key={item.color}
-                onPress={() => handleColorTest(item.color)}
-                activeOpacity={0.8}
-                style={styles.colorBtnWrapper}
-              >
-                <View
-                  style={[
-                    styles.colorBtn,
-                    { backgroundColor: item.color },
-                    testsDone.has(item.color) && styles.colorBtnDone,
-                  ]}
-                >
-                  {testsDone.has(item.color) && (
-                    <Icon name="checkmark-circle" size={22} color={item.color === '#000000' ? '#fff' : '#000'} />
-                  )}
+        <ScrollView 
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
+          <View style={styles.content}>
+            {/* Screen info */}
+            <GlassCard variant="strong" style={styles.infoCard} padding={Platform.select({ ios: 16, android: 20 })}>
+              <View style={styles.infoRow}>
+                <View style={styles.infoItem}>
+                  <Text style={styles.infoValue}>{Math.round(width)}×{Math.round(height)}</Text>
+                  <Text style={styles.infoLabel}>Resolution</Text>
                 </View>
-                <Text style={styles.colorName}>{item.name}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+                <View style={styles.divider} />
+                <View style={styles.infoItem}>
+                  <Text style={styles.infoValue}>{testsDone.size}/{COLOR_TESTS.length}</Text>
+                  <Text style={styles.infoLabel}>Tests Done</Text>
+                </View>
+              </View>
+            </GlassCard>
 
-          <GlassCard variant="subtle" style={styles.tipCard}>
-            <View style={styles.tipRow}>
-              <Icon name="bulb-outline" size={18} color="#ffd200" />
-              <Text style={styles.tipText}>
-                Look for any dark spots, bright dots, or color bleed during each test
-              </Text>
+            {/* Color buttons */}
+            <Text style={styles.sectionTitle}>Color Fill Tests</Text>
+            <Text style={styles.sectionSub}>Tap each color to fill the screen. Look for dead pixels or incorrect colors.</Text>
+
+            <View style={styles.colorGrid}>
+              {COLOR_TESTS.map((item) => (
+                <TouchableOpacity
+                  key={item.color}
+                  onPress={() => handleColorTest(item.color)}
+                  activeOpacity={0.8}
+                  style={styles.colorBtnWrapper}
+                >
+                  <View
+                    style={[
+                      styles.colorBtn,
+                      { backgroundColor: item.color },
+                      testsDone.has(item.color) && styles.colorBtnDone,
+                    ]}
+                  >
+                    {testsDone.has(item.color) && (
+                      <Icon name="checkmark-circle" size={22} color={item.color === '#000000' ? '#fff' : '#000'} />
+                    )}
+                  </View>
+                  <Text style={styles.colorName}>{item.name}</Text>
+                </TouchableOpacity>
+              ))}
             </View>
-          </GlassCard>
 
-          <GlassButton
-            title="Mark Test Complete"
-            onPress={handleFinish}
-            iconName="checkmark-done"
-            size="lg"
-            disabled={testsDone.size === 0}
-            style={styles.doneBtn}
-          />
-        </View>
+            <GlassCard variant="strong" style={styles.tipCard} padding={12}>
+              <View style={styles.tipRow}>
+                <Icon name="bulb-outline" size={18} color="#ffd200" />
+                <Text style={styles.tipText}>
+                  Look for any dark spots, bright dots, or color bleed during each test
+                </Text>
+              </View>
+            </GlassCard>
+
+            <GlassButton
+              title="Mark Test Complete"
+              onPress={handleFinish}
+              iconName="checkmark-done"
+              size="lg"
+              disabled={testsDone.size === 0}
+              style={styles.doneBtn}
+            />
+          </View>
+        </ScrollView>
       </SafeAreaView>
 
       <GlassModal
@@ -186,7 +193,8 @@ const DisplayTestScreen = () => {
 const styles = StyleSheet.create({
   bg: { flex: 1 },
   safe: { flex: 1 },
-  content: { flex: 1, padding: 20 },
+  scrollContent: { flexGrow: 1 },
+  content: { padding: 20, paddingBottom: 40 },
   fullScreen: { flex: 1 },
   fullScreenSafe: { flex: 1, justifyContent: 'space-between', alignItems: 'center' },
   fullScreenHint: { paddingTop: 60 },
@@ -204,10 +212,14 @@ const styles = StyleSheet.create({
   colorLabelText: { fontSize: 36, fontWeight: '900', marginBottom: 8 },
   colorSub: { fontSize: 14, textAlign: 'center' },
   infoCard: { marginBottom: 20 },
-  infoRow: { flexDirection: 'row', alignItems: 'center' },
+  infoRow: { 
+    flexDirection: 'row', 
+    alignItems: 'center',
+    paddingBottom: Platform.OS === 'android' ? 10 : 0,
+  },
   infoItem: { flex: 1, alignItems: 'center' },
   infoValue: { color: TEXT.primary, fontSize: 18, fontWeight: '800', marginBottom: 2 },
-  infoLabel: { color: TEXT.muted, fontSize: 11 },
+  infoLabel: { color: TEXT.muted, fontSize: 11, fontWeight: '600' },
   divider: { width: 1, height: 30, backgroundColor: GLASS.border },
   sectionTitle: { color: TEXT.primary, fontSize: 16, fontWeight: '700', marginBottom: 6 },
   sectionSub: { color: TEXT.muted, fontSize: 12, marginBottom: 16, lineHeight: 18 },
@@ -215,12 +227,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
-    marginBottom: 16,
+    rowGap: Platform.select({ ios: 12, android: 18 }),
+    marginBottom: 24,
   },
   colorBtnWrapper: { alignItems: 'center', gap: 6 },
   colorBtn: {
-    width: (width - 40 - 60) / 3,
-    height: (width - 40 - 60) / 3,
+    width: (width - 40 - 30) / 3, // Improved grid calculation
+    height: (width - 40 - 30) / 3,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
@@ -229,10 +242,26 @@ const styles = StyleSheet.create({
   },
   colorBtnDone: { borderColor: '#38ef7d', borderWidth: 2.5 },
   colorName: { color: TEXT.secondary, fontSize: 12, fontWeight: '600' },
-  tipCard: { marginBottom: 20 },
-  tipRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  tipText: { color: TEXT.secondary, fontSize: 12, flex: 1, lineHeight: 18 },
-  doneBtn: {},
+  tipCard: { 
+    marginBottom: 20,
+    minHeight: 50,
+    justifyContent: 'center',
+  },
+  tipRow: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    gap: 12,
+  },
+  tipText: { 
+    color: TEXT.secondary, 
+    fontSize: 12, 
+    flex: 1, 
+    lineHeight: 18,
+  },
+  doneBtn: { 
+    marginTop: 10,
+    marginBottom: Platform.OS === 'android' ? 12 : 0 
+  },
 });
 
 export default DisplayTestScreen;

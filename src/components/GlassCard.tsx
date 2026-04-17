@@ -41,7 +41,7 @@ const GlassCard: React.FC<GlassCardProps> = ({
         end={{ x: 1, y: 1 }}
         style={[StyleSheet.absoluteFill, { borderRadius: 16 }]}
       />
-      <View style={[styles.content, { padding, flex: 1 }]}>
+      <View style={[styles.content, { padding }]}>
         {children}
       </View>
     </View>
@@ -56,8 +56,6 @@ const styles = StyleSheet.create({
   },
   content: {
     width: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
 });
 

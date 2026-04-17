@@ -16,14 +16,16 @@ const { width } = Dimensions.get('window');
 interface GlassModalProps {
   visible: boolean;
   title: string;
-  message: string;
+  message?: string;
   iconName?: string;
   iconColor?: string;
   confirmText?: string;
   cancelText?: string;
-  onConfirm: () => void;
+  onConfirm?: () => void;
   onCancel?: () => void;
   confirmVariant?: 'primary' | 'secondary' | 'success' | 'danger' | 'glass';
+  children?: React.ReactNode;
+  showButtons?: boolean;
 }
 
 const GlassModal: React.FC<GlassModalProps> = ({
@@ -37,6 +39,8 @@ const GlassModal: React.FC<GlassModalProps> = ({
   onConfirm,
   onCancel,
   confirmVariant = 'primary',
+  children,
+  showButtons = true,
 }) => {
   return (
     <Modal
@@ -74,24 +78,28 @@ const GlassModal: React.FC<GlassModalProps> = ({
             </View>
 
             <Text style={styles.title}>{title}</Text>
-            <Text style={styles.message}>{message}</Text>
+            {message && <Text style={styles.message}>{message}</Text>}
 
-            <View style={styles.actions}>
-              {onCancel && (
+            {children}
+
+            {showButtons && (
+              <View style={styles.actions}>
+                {onCancel && (
+                  <GlassButton
+                    title={cancelText}
+                    onPress={onCancel}
+                    variant="glass"
+                    style={styles.actionBtn}
+                  />
+                )}
                 <GlassButton
-                  title={cancelText}
-                  onPress={onCancel}
-                  variant="glass"
-                  style={styles.actionBtn}
+                  title={confirmText}
+                  onPress={onConfirm || (() => {})}
+                  variant={confirmVariant}
+                  style={onCancel ? styles.actionBtn : styles.fullWidth}
                 />
-              )}
-              <GlassButton
-                title={confirmText}
-                onPress={onConfirm}
-                variant={confirmVariant}
-                style={onCancel ? styles.actionBtn : styles.fullWidth}
-              />
-            </View>
+              </View>
+            )}
           </View>
         </View>
       </View>

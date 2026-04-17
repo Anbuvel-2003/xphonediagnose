@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   Dimensions,
   StatusBar,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -17,151 +18,197 @@ import { RootStackParamList } from '../navigation/types';
 import GlassButton from '../components/GlassButton';
 import GlassCard from '../components/GlassCard';
 import ScreenHeader from '../components/ScreenHeader';
-import { GRADIENTS, TEXT, GLASS } from '../theme/colors';
+import { GRADIENTS, TEXT, GLASS, STATUS } from '../theme/colors';
 import { useDiagnostic } from '../store/DiagnosticContext';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'TouchTest'>;
-const { width } = Dimensions.get('window');
-const CANVAS_HEIGHT = 260;
+const { width, height } = Dimensions.get('window');
 
-interface TouchPoint {
-  x: number;
-  y: number;
-  id: number;
-}
+// Grid configuration
+const COLS = 8;
+const ROWS = 14;
+const TILE_WIDTH = width / COLS;
+const TILE_HEIGHT = height / ROWS;
+const TOTAL_TILES = COLS * ROWS;
 
 const TouchTestScreen = () => {
   const navigation = useNavigation<Nav>();
   const { setResult } = useDiagnostic();
-  const [points, setPoints] = useState<TouchPoint[]>([]);
+  const [clearedTiles, setClearedTiles] = useState<Set<number>>(new Set());
+  const [isFullScreen, setIsFullScreen] = useState(false);
   const [totalTouches, setTotalTouches] = useState(0);
-  const [swipeCount, setSwipeCount] = useState(0);
-  const [testPassed, setTestPassed] = useState<boolean | null>(null);
-  const idRef = useRef(0);
 
-  const panResponder = PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: () => true,
-    onPanResponderGrant: (evt) => {
-      const { locationX, locationY } = evt.nativeEvent;
-      const newPoint = { x: locationX, y: locationY, id: idRef.current++ };
-      setPoints(prev => [...prev.slice(-50), newPoint]);
-      setTotalTouches(prev => prev + 1);
-    },
-    onPanResponderMove: (evt) => {
-      const { locationX, locationY } = evt.nativeEvent;
-      setPoints(prev => [...prev.slice(-50), { x: locationX, y: locationY, id: idRef.current++ }]);
-    },
-    onPanResponderRelease: () => {
-      setSwipeCount(prev => prev + 1);
-    },
-  });
+  const tiles = useMemo(() => {
+    const temp = [];
+    for (let i = 0; i < TOTAL_TILES; i++) {
+      temp.push(i);
+    }
+    return temp;
+  }, []);
 
-  const handleClear = () => setPoints([]);
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        handleTouch(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
+      },
+      onPanResponderMove: (evt) => {
+        handleTouch(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
+      },
+    })
+  ).current;
+
+  const handleTouch = (x: number, y: number) => {
+    const col = Math.floor(x / TILE_WIDTH);
+    const row = Math.floor(y / TILE_HEIGHT);
+    if (col >= 0 && col < COLS && row >= 0 && row < ROWS) {
+      const index = row * COLS + col;
+      setClearedTiles((prev) => {
+        if (prev.has(index)) return prev;
+        const next = new Set(prev);
+        next.add(index);
+        return next;
+      });
+      setTotalTouches((prev) => prev + 1);
+    }
+  };
+
+  useEffect(() => {
+    if (clearedTiles.size === TOTAL_TILES && TOTAL_TILES > 0) {
+      Alert.alert('Success', 'All screen areas verified!', [
+        { text: 'Complete', onPress: () => handleDone(true) }
+      ]);
+    }
+  }, [clearedTiles.size]);
+
+  const handleClear = () => {
+    setClearedTiles(new Set());
+    setTotalTouches(0);
+  };
 
   const handleDone = (passed: boolean) => {
-    setTestPassed(passed);
     setResult('touch', {
       status: passed ? 'pass' : 'fail',
       score: passed ? 100 : 30,
-      details: `${totalTouches} touches, ${swipeCount} gestures`,
+      details: `${clearedTiles.size}/${TOTAL_TILES} area cleared`,
     });
-    setTimeout(() => navigation.navigate('AudioTest'), 400);
+    navigation.navigate('AudioTest');
   };
+
+  const progress = Math.round((clearedTiles.size / TOTAL_TILES) * 100);
 
   return (
     <LinearGradient colors={GRADIENTS.background} style={styles.bg}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-      <SafeAreaView style={styles.safe}>
-        <ScreenHeader
-          title="Touch & Input"
-          subtitle="Test touchscreen responsiveness and multi-touch"
-          step={4}
-          onBack={() => navigation.goBack()}
-          iconName="hand-left-outline"
-        />
-        <View style={styles.content}>
-          {/* Stats */}
-          <View style={styles.statsRow}>
-            <GlassCard style={styles.statCard}>
-              <Icon name="finger-print-outline" size={20} color="#4facfe" />
-              <Text style={styles.statValue}>{totalTouches}</Text>
-              <Text style={styles.statLabel}>Touches</Text>
-            </GlassCard>
-            <GlassCard style={styles.statCard}>
-              <Icon name="swap-horizontal-outline" size={20} color="#a78bfa" />
-              <Text style={styles.statValue}>{swipeCount}</Text>
-              <Text style={styles.statLabel}>Gestures</Text>
-            </GlassCard>
-            <GlassCard style={styles.statCard}>
-              <Icon name="ellipse-outline" size={20} color="#38ef7d" />
-              <Text style={styles.statValue}>{points.length}</Text>
-              <Text style={styles.statLabel}>Points</Text>
-            </GlassCard>
-          </View>
-
-          {/* Touch canvas */}
-          <View style={styles.canvasWrapper}>
-            <View style={styles.canvas} {...panResponder.panHandlers}>
-              {/* Grid overlay */}
-              {[...Array(4)].map((_, i) => (
-                <View key={`h${i}`} style={[styles.gridLine, { top: (CANVAS_HEIGHT / 4) * (i + 1) }]} />
-              ))}
-              {[...Array(4)].map((_, i) => (
-                <View key={`v${i}`} style={[styles.gridLineV, { left: ((width - 40) / 4) * (i + 1) }]} />
-              ))}
-
-              {points.length === 0 && (
-                <View style={styles.canvasHint}>
-                  <Icon name="hand-left-outline" size={32} color="rgba(255,255,255,0.2)" />
-                  <Text style={styles.canvasHintText}>Draw, tap, or swipe here</Text>
-                </View>
-              )}
-
-              {points.map((pt) => (
-                <View
-                  key={pt.id}
-                  style={[
-                    styles.touchDot,
-                    { left: pt.x - 8, top: pt.y - 8 },
-                  ]}
-                />
-              ))}
+      
+      {!isFullScreen ? (
+        <SafeAreaView style={styles.safe}>
+          <ScreenHeader
+            title="Touch診断"
+            subtitle="Verify every pixel of your display"
+            step={4}
+            onBack={() => navigation.goBack()}
+            iconName="hand-left-outline"
+          />
+          <View style={styles.content}>
+            <View style={styles.statsRow}>
+              <GlassCard style={styles.statCard} padding={12}>
+                <Text style={styles.statValue}>{progress}%</Text>
+                <Text style={styles.statLabel}>Verified</Text>
+              </GlassCard>
+              <GlassCard style={styles.statCard} padding={12}>
+                <Text style={styles.statValue}>{clearedTiles.size}</Text>
+                <Text style={styles.statLabel}>Zones Pass</Text>
+              </GlassCard>
             </View>
-            <TouchableOpacity onPress={handleClear} style={styles.clearBtn}>
-              <Icon name="trash-outline" size={16} color={TEXT.secondary} />
-              <Text style={styles.clearText}>Clear</Text>
+
+            <TouchableOpacity 
+              style={styles.previewCanvas} 
+              onPress={() => setIsFullScreen(true)}
+              activeOpacity={0.9}
+            >
+              <View style={styles.previewOverlay}>
+                <Icon name="grid-outline" size={40} color={STATUS.running} />
+                <Text style={styles.previewText}>Start Full Screen Touch Test</Text>
+                <Text style={styles.previewSubText}>Drag to clear all glass tiles</Text>
+              </View>
             </TouchableOpacity>
-          </View>
 
-          <GlassCard variant="subtle" style={styles.tipCard}>
-            <View style={styles.tipRow}>
-              <Icon name="bulb-outline" size={16} color="#ffd200" />
-              <Text style={styles.tipText}>
-                Try tapping in corners, drawing lines, and multi-finger gestures to test all zones
-              </Text>
+            <GlassCard variant="strong" style={styles.tipCard} padding={12}>
+              <View style={styles.tipRow}>
+                <Icon name="bulb-outline" size={20} color="#ffd200" />
+                <Text style={styles.tipText}>
+                  Swipe over the entire screen to clear the glass tiles. If any tile stays, that area has a touch issue.
+                </Text>
+              </View>
+            </GlassCard>
+
+            <View style={styles.actionRow}>
+              <GlassButton
+                title="Manual Fail"
+                onPress={() => handleDone(false)}
+                variant="danger"
+                style={styles.actionBtn}
+              />
+              <GlassButton
+                title="Pass"
+                onPress={() => handleDone(true)}
+                variant="success"
+                style={styles.actionBtn}
+                disabled={progress < 20}
+              />
             </View>
-          </GlassCard>
-
-          <View style={styles.actionRow}>
-            <GlassButton
-              title="Fail"
-              onPress={() => handleDone(false)}
-              variant="danger"
-              iconName="close-circle-outline"
-              style={styles.actionBtn}
-            />
-            <GlassButton
-              title="Pass"
-              onPress={() => handleDone(true)}
-              variant="success"
-              iconName="checkmark-circle-outline"
-              style={styles.actionBtn}
-              disabled={totalTouches < 3}
-            />
           </View>
+        </SafeAreaView>
+      ) : (
+        <View style={styles.fullScreenCanvas} {...panResponder.panHandlers}>
+          {/* Tiles Grid */}
+          <View style={styles.tileGrid}>
+            {tiles.map((index) => (
+              <View
+                key={index}
+                style={[
+                  styles.tile,
+                  {
+                    width: TILE_WIDTH,
+                    height: TILE_HEIGHT,
+                    backgroundColor: clearedTiles.has(index) ? 'transparent' : GLASS.background,
+                    borderColor: clearedTiles.has(index) ? 'rgba(255,255,255,0.02)' : GLASS.border,
+                  },
+                ]}
+              >
+                {!clearedTiles.has(index) && (
+                  <View style={styles.tileInner} />
+                )}
+              </View>
+            ))}
+          </View>
+          
+          <SafeAreaView style={styles.fullScreenUI} pointerEvents="box-none">
+            <View style={styles.fullScreenHeader}>
+              <View style={styles.progressBadge}>
+                <Text style={styles.progressText}>{progress}% Verified</Text>
+              </View>
+              <View style={styles.controlRow}>
+                <TouchableOpacity style={styles.iconBtn} onPress={handleClear}>
+                  <Icon name="refresh-outline" size={24} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.iconBtn} onPress={() => setIsFullScreen(false)}>
+                  <Icon name="close-outline" size={24} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {clearedTiles.size === 0 && (
+              <View style={styles.guideContainer} pointerEvents="none">
+                <Icon name="hand-left-outline" size={48} color="#fff" />
+                <Text style={styles.guideText}>Swipe to clean the whole display</Text>
+              </View>
+            )}
+          </SafeAreaView>
         </View>
-      </SafeAreaView>
+      )}
     </LinearGradient>
   );
 };
@@ -171,59 +218,105 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   content: { flex: 1, padding: 20 },
   statsRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
-  statCard: { flex: 1, alignItems: 'center', gap: 4 },
-  statValue: { color: TEXT.primary, fontSize: 20, fontWeight: '800' },
-  statLabel: { color: TEXT.muted, fontSize: 10 },
-  canvasWrapper: { marginBottom: 16 },
-  canvas: {
-    height: CANVAS_HEIGHT,
-    borderRadius: 16,
+  statCard: { flex: 1, alignItems: 'center' },
+  statValue: { color: TEXT.primary, fontSize: 24, fontWeight: '800' },
+  statLabel: { color: TEXT.muted, fontSize: 11, fontWeight: '600' },
+  previewCanvas: {
+    height: 260,
     backgroundColor: GLASS.background,
-    borderWidth: 1,
+    borderRadius: 24,
+    borderWidth: 2,
     borderColor: GLASS.border,
+    marginBottom: 20,
     overflow: 'hidden',
-    marginBottom: 8,
-    position: 'relative',
   },
-  gridLine: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-  },
-  gridLineV: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: 1,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-  },
-  canvasHint: {
+  previewOverlay: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 12,
   },
-  canvasHintText: { color: 'rgba(255,255,255,0.2)', fontSize: 13 },
-  touchDot: {
+  previewText: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  previewSubText: { color: TEXT.muted, fontSize: 13 },
+  fullScreenCanvas: {
     position: 'absolute',
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: 'rgba(167,139,250,0.7)',
-    borderWidth: 1.5,
-    borderColor: '#a78bfa',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#0F0C29',
   },
-  clearBtn: {
+  tileGrid: {
     flexDirection: 'row',
-    alignSelf: 'flex-end',
-    alignItems: 'center',
-    gap: 4,
+    flexWrap: 'wrap',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
-  clearText: { color: TEXT.secondary, fontSize: 12 },
+  tile: {
+    borderWidth: 0.5,
+  },
+  tileInner: {
+    flex: 1,
+    margin: 2,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  fullScreenUI: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'space-between',
+    padding: 20,
+  },
+  fullScreenHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  progressBadge: {
+    backgroundColor: 'rgba(56, 239, 125, 0.2)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#38ef7d',
+  },
+  progressText: { color: '#38ef7d', fontWeight: '800', fontSize: 14 },
+  controlRow: { flexDirection: 'row', gap: 10 },
+  iconBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guideContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 16,
+  },
+  guideText: { 
+    color: '#fff', 
+    fontSize: 20, 
+    fontWeight: '800', 
+    textAlign: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    padding: 20,
+    borderRadius: 16,
+  },
   tipCard: { marginBottom: 20 },
-  tipRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  tipRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   tipText: { color: TEXT.secondary, fontSize: 12, flex: 1, lineHeight: 18 },
   actionRow: { flexDirection: 'row', gap: 12 },
   actionBtn: { flex: 1 },

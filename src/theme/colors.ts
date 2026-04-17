@@ -14,11 +14,11 @@ export const GRADIENTS = {
 };
 
 export const GLASS = {
-  background: 'rgba(255, 255, 255, 0.08)',
-  backgroundStrong: 'rgba(255, 255, 255, 0.15)',
-  backgroundSubtle: 'rgba(255, 255, 255, 0.04)',
-  border: 'rgba(255, 255, 255, 0.20)',
-  borderStrong: 'rgba(255, 255, 255, 0.35)',
+  background: 'rgba(255, 255, 255, 0.12)',
+  backgroundStrong: 'rgba(255, 255, 255, 0.22)',
+  backgroundSubtle: 'rgba(255, 255, 255, 0.08)',
+  border: 'rgba(255, 255, 255, 0.25)',
+  borderStrong: 'rgba(255, 255, 255, 0.40)',
   shadow: 'rgba(0, 0, 0, 0.4)',
   overlay: 'rgba(0, 0, 0, 0.5)',
 };
