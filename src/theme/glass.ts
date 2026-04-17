@@ -1,0 +1,55 @@
+import { StyleSheet } from 'react-native';
+import { GLASS } from './colors';
+
+export const glassStyles = StyleSheet.create({
+  card: {
+    backgroundColor: GLASS.background,
+    borderWidth: 1,
+    borderColor: GLASS.border,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  cardStrong: {
+    backgroundColor: GLASS.backgroundStrong,
+    borderWidth: 1,
+    borderColor: GLASS.borderStrong,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  button: {
+    backgroundColor: GLASS.backgroundStrong,
+    borderWidth: 1,
+    borderColor: GLASS.borderStrong,
+    borderRadius: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  modal: {
+    backgroundColor: 'rgba(15, 12, 41, 0.85)',
+    borderWidth: 1,
+    borderColor: GLASS.borderStrong,
+    borderRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.6,
+    shadowRadius: 40,
+    elevation: 20,
+  },
+  inputContainer: {
+    backgroundColor: GLASS.backgroundSubtle,
+    borderWidth: 1,
+    borderColor: GLASS.border,
+    borderRadius: 12,
+  },
+});

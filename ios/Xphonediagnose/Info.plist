@@ -34,7 +34,15 @@
 		<true/>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string>XPhone Diagnose needs location access to test GPS and show coordinates.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>XPhone Diagnose needs location access to test GPS accuracy.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>XPhone Diagnose needs Bluetooth access to scan for nearby BLE devices.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>XPhone Diagnose uses Bluetooth to test BLE functionality.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>XPhone Diagnose needs motion sensor access to test accelerometer and gyroscope.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
@@ -53,6 +61,28 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+	</array>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Ionicons.ttf</string>
+		<string>Fontisto.ttf</string>
+		<string>Octicons.ttf</string>
+		<string>Feather.ttf</string>
+		<string>FontAwesome6_Regular.ttf</string>
+		<string>Entypo.ttf</string>
+		<string>FontAwesome5_Brands.ttf</string>
+		<string>MaterialCommunityIcons.ttf</string>
+		<string>AntDesign.ttf</string>
+		<string>Foundation.ttf</string>
+		<string>FontAwesome5_Solid.ttf</string>
+		<string>FontAwesome5_Regular.ttf</string>
+		<string>FontAwesome.ttf</string>
+		<string>Zocial.ttf</string>
+		<string>EvilIcons.ttf</string>
+		<string>FontAwesome6_Solid.ttf</string>
+		<string>SimpleLineIcons.ttf</string>
+		<string>FontAwesome6_Brands.ttf</string>
+		<string>MaterialIcons.ttf</string>
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
