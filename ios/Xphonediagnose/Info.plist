@@ -37,6 +37,12 @@
 	<string>XPhone Diagnose needs location access to test GPS and show coordinates.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>XPhone Diagnose needs location access to test GPS accuracy.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>$(PRODUCT_NAME) needs access to your camera for diagnostic testing.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>$(PRODUCT_NAME) needs access to your microphone for recording and audio diagnostics.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>$(PRODUCT_NAME) needs access to your photo library to save diagnostic photos.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>XPhone Diagnose needs Bluetooth access to scan for nearby BLE devices.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>

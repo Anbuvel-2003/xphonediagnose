@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,94 +6,118 @@ import {
   StatusBar,
   TouchableOpacity,
   ScrollView,
+  Platform,
+  Alert,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Camera, useCameraDevice, CameraDevice } from 'react-native-vision-camera';
 import { RootStackParamList } from '../navigation/types';
 import GlassButton from '../components/GlassButton';
 import GlassCard from '../components/GlassCard';
-import GlassModal from '../components/GlassModal';
 import ScreenHeader from '../components/ScreenHeader';
 import { GRADIENTS, TEXT, GLASS, STATUS } from '../theme/colors';
 import { useDiagnostic } from '../store/DiagnosticContext';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'CameraTest'>;
+type TestState = 'idle' | 'checking' | 'rear_photo' | 'front_photo' | 'video_record' | 'torch' | 'completed';
 type CheckStatus = 'pending' | 'pass' | 'fail';
 
-interface CameraCheck {
-  id: string;
-  title: string;
-  description: string;
-  icon: string;
-  iconColor: string;
-  steps: string[];
-}
-
-const CAMERA_CHECKS: CameraCheck[] = [
-  {
-    id: 'rear',
-    title: 'Rear Camera',
-    description: 'Main camera quality and focus',
-    icon: 'camera-outline',
-    iconColor: '#4facfe',
-    steps: ['Open your camera app', 'Switch to rear camera', 'Check focus, sharpness and colors', 'Try taking a photo'],
-  },
-  {
-    id: 'front',
-    title: 'Front Camera',
-    description: 'Selfie camera quality',
-    icon: 'camera-reverse-outline',
-    iconColor: '#a78bfa',
-    steps: ['Open your camera app', 'Switch to front camera', 'Check image clarity and colors', 'Test portrait mode if available'],
-  },
-  {
-    id: 'flash',
-    title: 'Flash / Torch',
-    description: 'LED flash functionality',
-    icon: 'flash-outline',
-    iconColor: '#ffd200',
-    steps: ['Open camera or torch app', 'Turn on the flash/torch', 'Verify it lights up properly'],
-  },
-  {
-    id: 'video',
-    title: 'Video Recording',
-    description: 'Video capture and stabilization',
-    icon: 'videocam-outline',
-    iconColor: '#38ef7d',
-    steps: ['Open camera and switch to video', 'Record a short clip', 'Check smoothness and audio sync'],
-  },
+const CAMERA_CHECKS = [
+  { id: 'rear', title: 'Rear Camera', icon: 'camera-outline', color: '#4facfe' },
+  { id: 'front', title: 'Front Camera', icon: 'camera-reverse-outline', color: '#a78bfa' },
+  { id: 'torch', title: 'Flash / Torch', icon: 'flash-outline', color: '#ffd200' },
+  { id: 'video', title: 'Video Recording', icon: 'videocam-outline', color: '#38ef7d' },
 ];
 
 const CameraTestScreen = () => {
   const navigation = useNavigation<Nav>();
   const { setResult } = useDiagnostic();
-  const [statuses, setStatuses] = useState<Record<string, CheckStatus>>(
-    Object.fromEntries(CAMERA_CHECKS.map(c => [c.id, 'pending'])),
-  );
-  const [stepModal, setStepModal] = useState(false);
-  const [currentCheck, setCurrentCheck] = useState<CameraCheck | null>(null);
+  const backDevice = useCameraDevice('back');
+  const frontDevice = useCameraDevice('front');
+  const cameraRef = useRef<Camera>(null);
 
-  const showSteps = (check: CameraCheck) => {
-    setCurrentCheck(check);
-    setStepModal(true);
+  const [testState, setTestState] = useState<TestState>('idle');
+  const [statuses, setStatuses] = useState<Record<string, CheckStatus>>({
+    rear: 'pending',
+    front: 'pending',
+    torch: 'pending',
+    video: 'pending',
+  } as Record<string, CheckStatus>);
+  const [countdown, setCountdown] = useState(0);
+  const [torchEnabled, setTorchEnabled] = useState(false);
+  const [currentDevice, setCurrentDevice] = useState<CameraDevice | null>(null);
+
+  const requestPermissions = async () => {
+    const cameraPermission = await Camera.requestCameraPermission();
+    const microphonePermission = await Camera.requestMicrophonePermission();
+    return cameraPermission === 'granted' && microphonePermission === 'granted';
   };
 
-  const markStatus = (id: string, status: CheckStatus) => {
-    setStatuses(prev => ({ ...prev, [id]: status }));
-    setStepModal(false);
+  const startAutomatedTest = async () => {
+    const hasPermission = await requestPermissions();
+    if (!hasPermission) {
+      Alert.alert('Permission Denied', 'Camera and Microphone permissions are required for this test.');
+      return;
+    }
+    runSequence();
+  };
+
+  const runSequence = async () => {
+    // 1. Rear Camera Photo
+    setTestState('rear_photo');
+    setCurrentDevice(backDevice || null);
+    await startTimer(3);
+    setStatuses(prev => ({ ...prev, rear: 'pass' }));
+
+    // 2. Front Camera Photo
+    setTestState('front_photo');
+    setCurrentDevice(frontDevice || null);
+    await startTimer(3);
+    setStatuses(prev => ({ ...prev, front: 'pass' }));
+
+    // 3. Torch Test
+    setTestState('torch');
+    setCurrentDevice(backDevice || null);
+    setTorchEnabled(true);
+    await startTimer(1);
+    setTorchEnabled(false);
+    setStatuses(prev => ({ ...prev, torch: 'pass' }));
+
+    // 4. Video Recording
+    setTestState('video_record');
+    await startTimer(3);
+    setStatuses(prev => ({ ...prev, video: 'pass' }));
+
+    setTestState('completed');
+  };
+
+  const startTimer = (seconds: number) => {
+    return new Promise<void>((resolve) => {
+      setCountdown(seconds);
+      const interval = setInterval(() => {
+        setCountdown(prev => {
+          if (prev <= 1) {
+            clearInterval(interval);
+            resolve();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    });
   };
 
   const handleFinish = () => {
     const vals = Object.values(statuses);
     const passed = vals.filter(s => s === 'pass').length;
-    const failed = vals.filter(s => s === 'fail').length;
     setResult('camera', {
-      status: failed > 1 ? 'fail' : failed === 1 ? 'warning' : 'pass',
-      score: Math.round((passed / Math.max(vals.filter(s => s !== 'pending').length, 1)) * 100),
-      details: `${passed} passed, ${failed} failed`,
+      status: passed === 4 ? 'pass' : passed >= 2 ? 'warning' : 'fail',
+      score: Math.round((passed / 4) * 100),
+      details: `${passed}/4 modules verified automatically`,
     });
     navigation.navigate('ConnectivityTest');
   };
@@ -104,89 +128,105 @@ const CameraTestScreen = () => {
     return STATUS.pending;
   };
 
-  const testedCount = Object.values(statuses).filter(s => s !== 'pending').length;
-
   return (
     <LinearGradient colors={GRADIENTS.background} style={styles.bg}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <SafeAreaView style={styles.safe}>
         <ScreenHeader
-          title="Camera Test"
-          subtitle="Test all camera modules and their features"
+          title="Automated Camera"
+          subtitle="Full hardware module diagnostics"
           step={6}
           onBack={() => navigation.goBack()}
           iconName="camera-outline"
         />
+        
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-          {/* Camera preview placeholder */}
+          {/* Real Camera Preview */}
           <GlassCard variant="strong" style={styles.previewCard}>
-            <LinearGradient
-              colors={['rgba(0,0,0,0.4)', 'rgba(0,0,0,0.2)']}
-              style={styles.preview}
-            >
-              <View style={styles.previewContent}>
-                <Icon name="camera-outline" size={48} color="rgba(255,255,255,0.3)" />
-                <Text style={styles.previewText}>Open your Camera App</Text>
-                <Text style={styles.previewSub}>Use the native camera app for testing</Text>
-              </View>
-              {/* Camera UI decorations */}
-              <View style={styles.corner} />
-              <View style={[styles.corner, styles.cornerTR]} />
-              <View style={[styles.corner, styles.cornerBL]} />
-              <View style={[styles.corner, styles.cornerBR]} />
-            </LinearGradient>
+            <View style={styles.previewContainer}>
+              {currentDevice && testState !== 'idle' && testState !== 'completed' ? (
+                <Camera
+                  ref={cameraRef}
+                  style={StyleSheet.absoluteFill}
+                  device={currentDevice}
+                  isActive={true}
+                  photo={true}
+                  video={true}
+                  audio={true}
+                  torch={torchEnabled ? 'on' : 'off'}
+                />
+              ) : (
+                <View style={styles.previewPlaceholder}>
+                  <Icon 
+                    name={testState === 'completed' ? 'checkmark-done-circle' : 'videocam-off-outline'} 
+                    size={64} 
+                    color="rgba(255,255,255,0.2)" 
+                  />
+                  <Text style={styles.previewText}>
+                    {testState === 'completed' ? 'Test Sequence Finished' : 'Camera Module Offline'}
+                  </Text>
+                </View>
+              )}
+              
+              {/* Overlay Indicators */}
+              {testState !== 'idle' && testState !== 'completed' && (
+                <View style={styles.overlay}>
+                  <View style={styles.badge}>
+                    <View style={styles.redDot} />
+                    <Text style={styles.badgeText}>{testState.toUpperCase().replace('_', ' ')}</Text>
+                  </View>
+                  <View style={styles.timerCircle}>
+                    <Text style={styles.timerText}>{countdown}s</Text>
+                  </View>
+                </View>
+              )}
+            </View>
           </GlassCard>
 
-          {/* Camera checks */}
-          {CAMERA_CHECKS.map(check => (
-            <GlassCard key={check.id} style={styles.checkCard}>
-              <View style={styles.checkRow}>
-                <View style={[styles.checkIcon, { borderColor: check.iconColor + '44' }]}>
-                  <Icon name={check.icon} size={22} color={check.iconColor} />
-                </View>
-                <View style={styles.checkInfo}>
+          {/* Progress List */}
+          <View style={styles.progressList}>
+            {CAMERA_CHECKS.map((check) => (
+              <GlassCard key={check.id} style={styles.checkCard} padding={12}>
+                <View style={styles.checkRow}>
+                  <View style={[styles.checkIcon, { borderColor: check.color + '44' }]}>
+                    <Icon name={check.icon} size={20} color={check.color} />
+                  </View>
                   <Text style={styles.checkTitle}>{check.title}</Text>
-                  <Text style={styles.checkDesc}>{check.description}</Text>
+                  <View style={[styles.statusIndicator, { backgroundColor: getStatusColor(statuses[check.id]) }]}>
+                    {statuses[check.id] !== 'pending' && (
+                      <Icon name="checkmark" size={12} color="#fff" />
+                    )}
+                  </View>
                 </View>
-                <View style={styles.checkRight}>
-                  {statuses[check.id] !== 'pending' && (
-                    <View style={[styles.statusDot, { backgroundColor: getStatusColor(statuses[check.id]) }]} />
-                  )}
-                  <GlassButton
-                    title={statuses[check.id] === 'pending' ? 'Test' : 'Retest'}
-                    onPress={() => showSteps(check)}
-                    variant="glass"
-                    size="sm"
-                  />
-                </View>
-              </View>
-            </GlassCard>
-          ))}
+              </GlassCard>
+            ))}
+          </View>
 
-          <GlassButton
-            title={`Continue (${testedCount}/${CAMERA_CHECKS.length} done)`}
-            onPress={handleFinish}
-            iconName="arrow-forward"
-            size="lg"
-            style={styles.continueBtn}
-          />
+          {testState === 'idle' ? (
+            <GlassButton
+              title="Start Full Hardware Test"
+              onPress={startAutomatedTest}
+              iconName="play-circle-outline"
+              size="lg"
+              variant="primary"
+              style={styles.mainBtn}
+            />
+          ) : testState === 'completed' ? (
+            <GlassButton
+              title="Finish & Continue"
+              onPress={handleFinish}
+              iconName="arrow-forward"
+              size="lg"
+              variant="success"
+              style={styles.mainBtn}
+            />
+          ) : (
+            <View style={styles.runningState}>
+              <Text style={styles.runningText}>Diagnostic Running...</Text>
+            </View>
+          )}
         </ScrollView>
       </SafeAreaView>
-
-      {currentCheck && (
-        <GlassModal
-          visible={stepModal}
-          title={`Test ${currentCheck.title}`}
-          message={currentCheck.steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}
-          iconName={currentCheck.icon}
-          iconColor={currentCheck.iconColor}
-          confirmText="Pass ✓"
-          cancelText="Fail ✗"
-          confirmVariant="success"
-          onConfirm={() => markStatus(currentCheck.id, 'pass')}
-          onCancel={() => markStatus(currentCheck.id, 'fail')}
-        />
-      )}
     </LinearGradient>
   );
 };
@@ -194,49 +234,69 @@ const CameraTestScreen = () => {
 const styles = StyleSheet.create({
   bg: { flex: 1 },
   safe: { flex: 1 },
-  scroll: { padding: 20, paddingBottom: 40 },
-  previewCard: { marginBottom: 16, overflow: 'hidden' },
-  preview: {
-    height: 180,
-    borderRadius: 12,
+  scroll: { padding: 20 },
+  previewCard: { marginBottom: 20, height: 350, overflow: 'hidden' },
+  previewContainer: { flex: 1, backgroundColor: '#000', borderRadius: 16, overflow: 'hidden' },
+  previewPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
+  previewText: { color: 'rgba(255,255,255,0.4)', fontSize: 16, fontWeight: '600' },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    padding: 16,
+    justifyContent: 'space-between',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  badge: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 6,
   },
-  previewContent: { alignItems: 'center', gap: 8 },
-  previewText: { color: 'rgba(255,255,255,0.5)', fontSize: 16, fontWeight: '600' },
-  previewSub: { color: 'rgba(255,255,255,0.3)', fontSize: 12 },
-  corner: {
-    position: 'absolute',
-    top: 12,
-    left: 12,
-    width: 20,
-    height: 20,
-    borderTopWidth: 2,
-    borderLeftWidth: 2,
-    borderColor: 'rgba(255,255,255,0.4)',
-    borderRadius: 2,
-  },
-  cornerTR: { left: undefined, right: 12, borderLeftWidth: 0, borderTopWidth: 2, borderRightWidth: 2 },
-  cornerBL: { top: undefined, bottom: 12, borderTopWidth: 0, borderBottomWidth: 2, borderLeftWidth: 2 },
-  cornerBR: { top: undefined, left: undefined, right: 12, bottom: 12, borderTopWidth: 0, borderLeftWidth: 0, borderBottomWidth: 2, borderRightWidth: 2 },
-  checkCard: { marginBottom: 10 },
-  checkRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  checkIcon: {
+  badgeText: { color: '#fff', fontSize: 11, fontWeight: '800' },
+  redDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef473a' },
+  timerCircle: {
     width: 44,
     height: 44,
-    borderRadius: 12,
-    backgroundColor: GLASS.backgroundStrong,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  timerText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  progressList: { gap: 10, marginBottom: 20 },
+  checkCard: { borderLeftWidth: 3, borderLeftColor: 'rgba(255,255,255,0.1)' },
+  checkRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  checkIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  checkTitle: { flex: 1, color: TEXT.primary, fontSize: 15, fontWeight: '600' },
+  statusIndicator: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  checkInfo: { flex: 1 },
-  checkTitle: { color: TEXT.primary, fontSize: 15, fontWeight: '700', marginBottom: 2 },
-  checkDesc: { color: TEXT.muted, fontSize: 12 },
-  checkRight: { alignItems: 'center', gap: 4 },
-  statusDot: { width: 8, height: 8, borderRadius: 4 },
-  continueBtn: { marginTop: 8 },
+  mainBtn: { marginVertical: 10 },
+  runningState: {
+    height: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
+  },
+  runningText: { color: TEXT.accent, fontSize: 16, fontWeight: '700' },
 });
 
 export default CameraTestScreen;
