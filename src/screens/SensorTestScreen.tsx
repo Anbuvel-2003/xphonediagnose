@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   StatusBar,
+  Animated,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -15,7 +16,6 @@ import {
   accelerometer,
   gyroscope,
   magnetometer,
-  barometer,
   setUpdateIntervalForType,
   SensorTypes,
 } from 'react-native-sensors';
@@ -29,334 +29,398 @@ import { GRADIENTS, TEXT, GLASS, STATUS } from '../theme/colors';
 import { useDiagnostic } from '../store/DiagnosticContext';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'SensorTest'>;
+type TestPhase = 'accel' | 'gyro' | 'magnet' | 'done';
 
-interface AxisValue { axis: string; value: string }
-type SensorStatus = 'idle' | 'active' | 'error' | 'unsupported';
-
-interface SensorState {
-  id: string;
-  title: string;
-  icon: string;
-  iconColor: string;
-  unit: string;
-  status: SensorStatus;
-  values: AxisValue[];
-  rawValues: number[];
+interface SensorReading {
+  x: number;
+  y: number;
+  z: number;
 }
 
-const mkSensor = (id: string, title: string, icon: string, iconColor: string, unit: string, axes: string[]): SensorState => ({
-  id, title, icon, iconColor, unit, status: 'idle',
-  values: axes.map(a => ({ axis: a, value: '—' })),
-  rawValues: axes.map(() => 0),
-});
+const PHASE_CONFIG = {
+  accel: {
+    title: 'Accelerometer',
+    instruction: 'Shake or tilt your phone rapidly',
+    icon: 'phone-portrait-outline',
+    color: '#4facfe',
+    threshold: 2.5,
+  },
+  gyro: {
+    title: 'Gyroscope',
+    instruction: 'Rotate your phone in all directions',
+    icon: 'sync-circle-outline',
+    color: '#a78bfa',
+    threshold: 1.5,
+  },
+  magnet: {
+    title: 'Magnetometer',
+    instruction: 'Move your phone in a figure-8 pattern',
+    icon: 'compass-outline',
+    color: '#38ef7d',
+    threshold: 8.0,
+  },
+};
 
-const SensorTestScreen = () => {
+export default function SensorTestScreen() {
   const navigation = useNavigation<Nav>();
   const { setResult } = useDiagnostic();
-  const [running, setRunning] = useState(false);
-  const [done, setDone] = useState(false);
-  const subs = useRef<Subscription[]>([]);
+  
+  const [phase, setPhase] = useState<TestPhase>('accel');
+  const [active, setActive] = useState(false);
+  const [countdown, setCountdown] = useState(5);
+  const [detectionProgress, setDetectionProgress] = useState(0);
+  const [results, setResults] = useState<Record<string, 'pass' | 'fail' | 'pending'>>({
+    accel: 'pending',
+    gyro: 'pending',
+    magnet: 'pending',
+  });
 
-  const [sensors, setSensors] = useState<SensorState[]>([
-    mkSensor('accel', 'Accelerometer', 'phone-portrait-outline', '#4facfe', 'm/s²', ['X', 'Y', 'Z']),
-    mkSensor('gyro', 'Gyroscope', 'sync-circle-outline', '#a78bfa', 'rad/s', ['X', 'Y', 'Z']),
-    mkSensor('magnet', 'Magnetometer', 'compass-outline', '#38ef7d', 'μT', ['X', 'Y', 'Z']),
-    mkSensor('baro', 'Barometer', 'thermometer-outline', '#f7971e', 'hPa', ['Pressure']),
-  ]);
+  const [liveData, setLiveData] = useState<SensorReading>({ x: 0, y: 0, z: 0 });
+  const [lastDelta, setLastDelta] = useState(0);
+  const lastData = useRef<SensorReading | null>(null);
+  const subs = useRef<Subscription | null>(null);
+  const progressAnim = useRef(new Animated.Value(0)).current;
 
-  const updateSensor = (id: string, vals: number[], status: SensorStatus = 'active') => {
-    setSensors(prev =>
-      prev.map(s =>
-        s.id === id
-          ? {
-              ...s,
-              status,
-              rawValues: vals,
-              values: s.values.map((v, i) => ({ ...v, value: (vals[i] ?? 0).toFixed(3) })),
-            }
-          : s,
-      ),
-    );
+  // ─── Phase Management ─────────────────────────────────────────────────────
+  
+  useEffect(() => {
+    if (!active || phase === 'done') return;
+
+    setCountdown(5);
+    setDetectionProgress(0);
+    progressAnim.setValue(0);
+    startSensorStream(phase);
+
+    const timer = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          finishPhase('fail');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      clearInterval(timer);
+      stopSensorStream();
+    };
+  }, [phase, active]);
+
+  const startSensorStream = (p: TestPhase) => {
+    stopSensorStream();
+    const interval = 100;
+    
+    if (p === 'accel') {
+      setUpdateIntervalForType(SensorTypes.accelerometer, interval);
+      subs.current = accelerometer.subscribe({
+        next: data => processData(data, PHASE_CONFIG.accel.threshold),
+        error: () => finishPhase('fail'),
+      });
+    } else if (p === 'gyro') {
+      setUpdateIntervalForType(SensorTypes.gyroscope, interval);
+      subs.current = gyroscope.subscribe({
+        next: data => processData(data, PHASE_CONFIG.gyro.threshold),
+        error: () => finishPhase('fail'),
+      });
+    } else if (p === 'magnet') {
+      setUpdateIntervalForType(SensorTypes.magnetometer, interval);
+      subs.current = magnetometer.subscribe({
+        next: data => processData(data, PHASE_CONFIG.magnet.threshold),
+        error: () => finishPhase('fail'),
+      });
+    }
   };
 
-  const markError = (id: string) => {
-    setSensors(prev =>
-      prev.map(s => (s.id === id ? { ...s, status: 'error' } : s)),
-    );
+  const stopSensorStream = () => {
+    subs.current?.unsubscribe();
+    subs.current = null;
+    lastData.current = null;
   };
 
-  const startSensors = () => {
-    setRunning(true);
+  const processData = (data: SensorReading, threshold: number) => {
+    setLiveData(data);
+    
+    if (lastData.current) {
+      const dx = Math.abs(data.x - lastData.current.x);
+      const dy = Math.abs(data.y - lastData.current.y);
+      const dz = Math.abs(data.z - lastData.current.z);
+      const delta = Math.max(dx, dy, dz);
+      setLastDelta(delta);
 
-    setUpdateIntervalForType(SensorTypes.accelerometer, 300);
-    setUpdateIntervalForType(SensorTypes.gyroscope, 300);
-    setUpdateIntervalForType(SensorTypes.magnetometer, 300);
-    setUpdateIntervalForType(SensorTypes.barometer, 1000);
-
-    subs.current.push(
-      accelerometer.subscribe({
-        next: ({ x, y, z }) => updateSensor('accel', [x, y, z]),
-        error: () => markError('accel'),
-      }),
-    );
-
-    subs.current.push(
-      gyroscope.subscribe({
-        next: ({ x, y, z }) => updateSensor('gyro', [x, y, z]),
-        error: () => markError('gyro'),
-      }),
-    );
-
-    subs.current.push(
-      magnetometer.subscribe({
-        next: ({ x, y, z }) => updateSensor('magnet', [x, y, z]),
-        error: () => markError('magnet'),
-      }),
-    );
-
-    subs.current.push(
-      barometer.subscribe({
-        next: ({ pressure }) => updateSensor('baro', [pressure]),
-        error: () => markError('baro'),
-      }),
-    );
+      if (delta > threshold) {
+        setDetectionProgress(prev => {
+          const next = Math.min(prev + 0.25, 1);
+          Animated.timing(progressAnim, {
+            toValue: next,
+            duration: 200,
+            useNativeDriver: false,
+          }).start();
+          
+          if (next >= 1) {
+            finishPhase('pass');
+          }
+          return next;
+        });
+      }
+    }
+    lastData.current = data;
   };
 
-  const stopSensors = () => {
-    subs.current.forEach(s => s.unsubscribe());
-    subs.current = [];
-    setRunning(false);
-    setDone(true);
-    const activeSensors = sensors.filter(s => s.status === 'active').length;
+  const finishPhase = (res: 'pass' | 'fail') => {
+    setResults(prev => ({ ...prev, [phase]: res }));
+    
+    if (phase === 'accel') setPhase('gyro');
+    else if (phase === 'gyro') setPhase('magnet');
+    else if (phase === 'magnet') {
+      setPhase('done');
+      setActive(false);
+    }
+  };
+
+  useEffect(() => {
+    if (phase === 'done') {
+      saveFinalResult();
+    }
+  }, [phase]);
+
+  const saveFinalResult = () => {
+    const vals = Object.values(results);
+    const passed = vals.filter(v => v === 'pass').length;
     setResult('sensors', {
-      status: activeSensors >= 2 ? 'pass' : activeSensors >= 1 ? 'warning' : 'fail',
-      score: Math.round((activeSensors / sensors.length) * 100),
-      details: `${activeSensors}/${sensors.length} sensors active`,
+      status: passed === 3 ? 'pass' : passed >= 1 ? 'warning' : 'fail',
+      score: Math.round((passed / 3) * 100),
+      details: `${passed}/3 sensors verified by live motion`,
     });
   };
 
-  useEffect(() => () => { subs.current.forEach(s => s.unsubscribe()); }, []);
-
-  const getBadgeStatus = (s: SensorStatus) => {
-    if (s === 'active') return 'pass' as const;
-    if (s === 'error') return 'fail' as const;
-    if (s === 'unsupported') return 'warning' as const;
-    return 'pending' as const;
+  const handleStart = () => {
+    setPhase('accel');
+    setActive(true);
+    setResults({ accel: 'pending', gyro: 'pending', magnet: 'pending' });
   };
 
-  const getBadgeLabel = (s: SensorStatus) => {
-    if (s === 'active') return 'Live';
-    if (s === 'error') return 'Error';
-    if (s === 'unsupported') return 'N/A';
-    return 'Idle';
-  };
+  // ─── Rendering ────────────────────────────────────────────────────────────
+
+  const currentCfg = phase !== 'done' ? PHASE_CONFIG[phase] : null;
 
   return (
     <LinearGradient colors={GRADIENTS.background} style={styles.bg}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <SafeAreaView style={styles.safe}>
         <ScreenHeader
-          title="Sensor Test"
-          subtitle="Live readings from accelerometer, gyroscope, magnetometer & barometer"
+          title="Sensor Diagnostic"
+          subtitle="Live motion & orientation verification"
           step={8}
           onBack={() => navigation.goBack()}
           iconName="compass-outline"
         />
+
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-          {/* Live indicator */}
-          {running && (
-            <GlassCard variant="strong" style={styles.liveBanner}>
-              <View style={styles.liveRow}>
-                <View style={styles.liveDot} />
-                <Text style={styles.liveText}>LIVE — sensors streaming</Text>
-                <Text style={styles.liveHint}>Tilt or move your device</Text>
+          
+          {/* Main Visualizer Card */}
+          <GlassCard variant="strong" style={styles.visualCard}>
+            <View style={styles.visualHeader}>
+              <View style={[styles.badgePill, { backgroundColor: active ? 'rgba(56,239,125,0.2)' : 'rgba(255,255,255,0.1)' }]}>
+                <View style={[styles.dot, { backgroundColor: active ? STATUS.pass : TEXT.muted }]} />
+                <Text style={[styles.badgeText, { color: active ? STATUS.pass : TEXT.muted }]}>
+                  {active ? 'TESTING' : 'IDLE'}
+                </Text>
               </View>
-            </GlassCard>
-          )}
-
-          {sensors.map(sensor => (
-            <GlassCard key={sensor.id} style={styles.sensorCard}>
-              <View style={styles.sensorHeader}>
-                <View style={[styles.sensorIcon, { borderColor: sensor.iconColor + '44' }]}>
-                  <Icon name={sensor.icon} size={20} color={sensor.iconColor} />
+              {active && (
+                <View style={styles.timerPill}>
+                  <Text style={styles.timerText}>{countdown}s remaining</Text>
                 </View>
-                <Text style={styles.sensorTitle}>{sensor.title}</Text>
-                <StatusBadge
-                  status={getBadgeStatus(sensor.status)}
-                  label={getBadgeLabel(sensor.status)}
-                  size="sm"
-                />
-              </View>
+              )}
+            </View>
 
-              {/* Value chips */}
-              <View style={styles.valuesRow}>
-                {sensor.values.map((v, i) => (
-                  <View key={i} style={styles.valueChip}>
-                    <Text style={styles.valueAxis}>{v.axis}</Text>
-                    <Text style={[styles.valueNum, { color: sensor.status === 'active' ? sensor.iconColor : TEXT.muted }]}>
-                      {v.value}
-                    </Text>
-                    <Text style={styles.valueUnit}>{sensor.unit}</Text>
+            {phase !== 'done' ? (
+              <View style={styles.testInfo}>
+                <View style={[styles.iconBox, { borderColor: currentCfg?.color + '55' }]}>
+                  <Icon name={currentCfg?.icon || 'help'} size={40} color={currentCfg?.color} />
+                </View>
+                <Text style={styles.phaseTitle}>{currentCfg?.title}</Text>
+                <Text style={styles.instruction}>{currentCfg?.instruction}</Text>
+
+                {active && (
+                  <View style={styles.progressContainer}>
+                    <View style={styles.deltaInfo}>
+                      <Text style={styles.progressLabel}>Detection Confidence</Text>
+                      <Text style={[styles.deltaText, { color: currentCfg?.color }]}>
+                        {lastDelta.toFixed(1)} / {currentCfg?.threshold}
+                      </Text>
+                    </View>
+                    <View style={styles.progressTrack}>
+                      <Animated.View 
+                        style={[
+                          styles.progressFill, 
+                          { 
+                            width: progressAnim.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: ['0%', '100%']
+                            }),
+                            backgroundColor: currentCfg?.color
+                          }
+                        ]} 
+                      />
+                    </View>
                   </View>
-                ))}
+                )}
               </View>
+            ) : (
+              <View style={styles.doneView}>
+                <Icon name="checkmark-done-circle" size={80} color={STATUS.pass} />
+                <Text style={styles.doneTitle}>Diagnostic Complete</Text>
+                <Text style={styles.doneDesc}>All key sensors have been verified</Text>
+              </View>
+            )}
+          </GlassCard>
 
-              {/* Bar visualization for 3-axis sensors */}
-              {sensor.status === 'active' && sensor.rawValues.length === 3 && (
-                <View style={styles.bars}>
-                  {(['X', 'Y', 'Z'] as const).map((axis, i) => {
-                    const maxVal = sensor.id === 'magnet' ? 100 : sensor.id === 'accel' ? 20 : 8;
-                    const pct = Math.min(Math.abs(sensor.rawValues[i]) / maxVal, 1);
-                    const barColors = [
-                      [sensor.iconColor, sensor.iconColor + '88'],
-                      ['#a78bfa', '#a78bfa88'],
-                      ['#38ef7d', '#38ef7d88'],
-                    ];
-                    return (
-                      <View key={axis} style={styles.barRow}>
-                        <Text style={styles.barLabel}>{axis}</Text>
-                        <View style={styles.barTrack}>
-                          <LinearGradient
-                            colors={barColors[i]}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 0 }}
-                            style={[styles.barFill, { width: `${pct * 100}%` }]}
-                          />
-                        </View>
-                        <Text style={styles.barVal}>{sensor.rawValues[i]?.toFixed(2)}</Text>
-                      </View>
-                    );
-                  })}
+          {/* Checklist Card */}
+          <GlassCard style={styles.checklistCard}>
+            <Text style={styles.sectionTitle}>Verification Checklist</Text>
+            {Object.entries(PHASE_CONFIG).map(([id, cfg]) => {
+              const res = results[id as keyof typeof results];
+              const isCurrent = phase === id;
+              return (
+                <View key={id} style={[styles.checkItem, isCurrent && styles.checkItemActive]}>
+                  <View style={[styles.checkIcon, { borderColor: cfg.color + '44' }]}>
+                    <Icon name={cfg.icon} size={18} color={isCurrent ? cfg.color : TEXT.muted} />
+                  </View>
+                  <Text style={[styles.checkLabel, isCurrent && styles.checkLabelActive]}>
+                    {cfg.title}
+                  </Text>
+                  <StatusBadge 
+                    status={res === 'pending' ? 'pending' : res} 
+                    label={res === 'pending' ? (isCurrent ? 'Running' : 'Wait') : res === 'pass' ? 'Success' : 'Failed'}
+                    size="sm"
+                  />
                 </View>
-              )}
+              );
+            })}
+          </GlassCard>
 
-              {/* Barometer special display */}
-              {sensor.status === 'active' && sensor.id === 'baro' && (
-                <View style={styles.baroDisplay}>
-                  <LinearGradient
-                    colors={['rgba(247,151,30,0.15)', 'rgba(255,210,0,0.05)']}
-                    style={styles.baroGauge}
-                  >
-                    <Text style={[styles.baroValue, { color: sensor.iconColor }]}>
-                      {sensor.rawValues[0]?.toFixed(1)}
-                    </Text>
-                    <Text style={styles.baroUnit}>hPa</Text>
-                    <Text style={styles.baroAlt}>
-                      ~{Math.round(44330 * (1 - Math.pow(sensor.rawValues[0] / 1013.25, 0.1903)))}m altitude
-                    </Text>
-                  </LinearGradient>
-                </View>
-              )}
-
-              {sensor.status === 'error' && (
-                <View style={styles.errorRow}>
-                  <Icon name="warning-outline" size={14} color={STATUS.warning} />
-                  <Text style={styles.errorText}>Sensor unavailable on this device</Text>
-                </View>
-              )}
-            </GlassCard>
-          ))}
-
-          {!running && !done && (
+          {/* Action Buttons */}
+          {!active && phase !== 'done' && (
             <GlassButton
-              title="Start Live Sensor Reading"
-              onPress={startSensors}
+              title="Start Sensor Test"
+              onPress={handleStart}
               iconName="play-circle-outline"
               size="lg"
-              style={styles.actionBtn}
+              variant="primary"
             />
           )}
-          {running && (
+
+          {phase === 'done' && (
             <GlassButton
-              title="Stop & Save Results"
-              onPress={stopSensors}
-              iconName="stop-circle-outline"
-              variant="danger"
-              size="lg"
-              style={styles.actionBtn}
-            />
-          )}
-          {done && (
-            <GlassButton
-              title="Next: Battery Test"
+              title="Continue to Battery Test"
               onPress={() => navigation.navigate('BatteryTest')}
               iconName="arrow-forward"
               size="lg"
-              style={styles.actionBtn}
+              variant="success"
             />
           )}
+
         </ScrollView>
       </SafeAreaView>
     </LinearGradient>
   );
-};
+}
 
 const styles = StyleSheet.create({
   bg: { flex: 1 },
   safe: { flex: 1 },
-  scroll: { padding: 20, paddingBottom: 40 },
-  liveBanner: { marginBottom: 12 },
-  liveRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  liveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: STATUS.pass,
+  scroll: { padding: 20, paddingBottom: 40, gap: 16 },
+
+  visualCard: {
+    minHeight: 320,
+    justifyContent: 'center',
+    padding: 24,
   },
-  liveText: { color: STATUS.pass, fontSize: 13, fontWeight: '700', flex: 1 },
-  liveHint: { color: TEXT.muted, fontSize: 11 },
-  sensorCard: { marginBottom: 12 },
-  sensorHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
-  sensorIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    backgroundColor: GLASS.backgroundStrong,
-    borderWidth: 1,
+  visualHeader: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  badgePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 6,
+  },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  badgeText: { fontSize: 11, fontWeight: '900', letterSpacing: 1 },
+  timerPill: {
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  timerText: { color: TEXT.secondary, fontSize: 12, fontWeight: '700' },
+
+  testInfo: { alignItems: 'center', gap: 16, marginTop: 20 },
+  iconBox: {
+    width: 80,
+    height: 80,
+    borderRadius: 24,
+    borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
   },
-  sensorTitle: { flex: 1, color: TEXT.primary, fontSize: 15, fontWeight: '700' },
-  valuesRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 10 },
-  valueChip: {
-    flex: 1,
-    minWidth: 70,
-    backgroundColor: GLASS.backgroundStrong,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: GLASS.border,
-  },
-  valueAxis: { color: TEXT.muted, fontSize: 9, fontWeight: '800', letterSpacing: 1, marginBottom: 3 },
-  valueNum: { fontSize: 15, fontWeight: '800', marginBottom: 1 },
-  valueUnit: { color: TEXT.muted, fontSize: 9 },
-  bars: { gap: 5 },
-  barRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  barLabel: { color: TEXT.muted, fontSize: 10, fontWeight: '700', width: 12 },
-  barTrack: {
-    flex: 1,
-    height: 4,
-    backgroundColor: GLASS.background,
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  barFill: { height: '100%', borderRadius: 2 },
-  barVal: { color: TEXT.muted, fontSize: 10, width: 44, textAlign: 'right' },
-  baroDisplay: { borderRadius: 10, overflow: 'hidden', marginTop: 4 },
-  baroGauge: {
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderRadius: 10,
-    gap: 2,
-  },
-  baroValue: { fontSize: 32, fontWeight: '900' },
-  baroUnit: { color: TEXT.secondary, fontSize: 13 },
-  baroAlt: { color: TEXT.muted, fontSize: 11, marginTop: 4 },
-  errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
-  errorText: { color: STATUS.warning, fontSize: 12 },
-  actionBtn: { marginTop: 4 },
-});
+  phaseTitle: { color: TEXT.primary, fontSize: 24, fontWeight: '800' },
+  instruction: { color: TEXT.secondary, fontSize: 16, textAlign: 'center', lineHeight: 24, paddingHorizontal: 20 },
 
-export default SensorTestScreen;
+  progressContainer: { width: '100%', marginTop: 20, gap: 10 },
+  deltaInfo: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 4 },
+  progressLabel: { color: TEXT.muted, fontSize: 12, fontWeight: '700' },
+  deltaText: { fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  progressTrack: {
+    height: 12,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 6,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  progressFill: { height: '100%', borderRadius: 5 },
+
+  doneView: { alignItems: 'center', gap: 12 },
+  doneTitle: { color: STATUS.pass, fontSize: 24, fontWeight: '800' },
+  doneDesc: { color: TEXT.secondary, fontSize: 15 },
+
+  checklistCard: { gap: 12 },
+  sectionTitle: { color: TEXT.primary, fontSize: 16, fontWeight: '700', marginBottom: 4 },
+  checkItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1,
+    borderColor: 'transparent',
+    gap: 12,
+  },
+  checkItemActive: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  checkIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  checkLabel: { flex: 1, color: TEXT.secondary, fontSize: 15, fontWeight: '600' },
+  checkLabelActive: { color: TEXT.primary },
+});

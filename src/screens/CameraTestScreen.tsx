@@ -161,8 +161,8 @@ export default function CameraTestScreen() {
                 style={StyleSheet.absoluteFill}
                 device={previewDevice!}
                 isActive={phase !== 'done'}
-                photo={phase !== 'idle' && phase !== 'done'}
-                video={phase === 'video'}
+                photo={phase === 'rear' || phase === 'front'}
+                video={phase === 'video' || phase === 'torch'}
                 audio={phase === 'video'}
                 torch={torchOn ? 'on' : 'off'}
               />
@@ -199,13 +199,11 @@ export default function CameraTestScreen() {
                     <Text style={styles.timerText}>{countdown}s</Text>
                   </View>
                 )}
-                {/* Torch phase: show FLASH ON / OFF live indicator */}
-                {phase === 'torch' && !torchDone && (
-                  <View style={[styles.torchIndicator, { backgroundColor: torchOn ? 'rgba(255,220,0,0.92)' : 'rgba(0,0,0,0.7)' }]}>
-                    <Icon name={torchOn ? 'flash' : 'flash-outline'} size={18} color={torchOn ? '#000' : '#ffd200'} />
-                    <Text style={[styles.torchIndicatorText, { color: torchOn ? '#000' : '#ffd200' }]}>
-                      {torchOn ? 'FLASH ON' : 'FLASH OFF'}
-                    </Text>
+                {/* Torch phase: show FLASH ON indicator */}
+                {phase === 'torch' && torchOn && (
+                  <View style={[styles.torchIndicator, { backgroundColor: 'rgba(255,220,0,0.95)' }]}>
+                    <Icon name="flash" size={18} color="#000" />
+                    <Text style={[styles.torchIndicatorText, { color: '#000' }]}>FLASH ON</Text>
                   </View>
                 )}
               </View>
@@ -234,27 +232,24 @@ export default function CameraTestScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.instrTitle}>{currentStep.title}</Text>
-                  <Text style={styles.instrDesc}>{currentStep.instruction}</Text>
+                  <Text style={styles.instrDesc}>
+                    {phase === 'torch' && !previewDevice?.hasTorch 
+                      ? "This device's chosen rear camera does not support hardware flash." 
+                      : currentStep.instruction}
+                  </Text>
                 </View>
               </View>
-              {/* Torch: wait for blinks to finish before showing Yes/No */}
-              {phase === 'torch' && !torchDone ? (
-                <View style={styles.waitingRow}>
-                  <Icon name="flash" size={20} color="#ffd200" />
-                  <Text style={styles.waitingText}>Flash blinking... please watch your device</Text>
-                </View>
-              ) : (
-                <View style={styles.yesNoRow}>
-                  <TouchableOpacity style={[styles.yesNoBtn, styles.yesBtn]} onPress={() => confirm('pass')} activeOpacity={0.8}>
-                    <Icon name="checkmark-circle" size={22} color="#38ef7d" />
-                    <Text style={styles.yesBtnText}>Yes — Working</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.yesNoBtn, styles.noBtn]} onPress={() => confirm('fail')} activeOpacity={0.8}>
-                    <Icon name="close-circle" size={22} color="#ef473a" />
-                    <Text style={styles.noBtnText}>No — Failed</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
+              
+              <View style={styles.yesNoRow}>
+                <TouchableOpacity style={[styles.yesNoBtn, styles.yesBtn]} onPress={() => confirm('pass')} activeOpacity={0.8}>
+                  <Icon name="checkmark-circle" size={22} color="#38ef7d" />
+                  <Text style={styles.yesBtnText}>Yes — Working</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.yesNoBtn, styles.noBtn]} onPress={() => confirm('fail')} activeOpacity={0.8}>
+                  <Icon name="close-circle" size={22} color="#ef473a" />
+                  <Text style={styles.noBtnText}>No — Failed</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           )}
 
