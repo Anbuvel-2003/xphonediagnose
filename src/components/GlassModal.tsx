@@ -5,6 +5,7 @@ import {
   Text,
   StyleSheet,
   Dimensions,
+  TouchableOpacity,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -23,6 +24,7 @@ interface GlassModalProps {
   cancelText?: string;
   onConfirm?: () => void;
   onCancel?: () => void;
+  onClose?: () => void;
   confirmVariant?: 'primary' | 'secondary' | 'success' | 'danger' | 'glass';
   children?: React.ReactNode;
   showButtons?: boolean;
@@ -32,12 +34,13 @@ const GlassModal: React.FC<GlassModalProps> = ({
   visible,
   title,
   message,
-  iconName = 'shield-checkmark-outline',
+  iconName,
   iconColor = '#a78bfa',
   confirmText = 'Allow',
   cancelText = 'Deny',
   onConfirm,
   onCancel,
+  onClose,
   confirmVariant = 'primary',
   children,
   showButtons = true,
@@ -66,16 +69,28 @@ const GlassModal: React.FC<GlassModalProps> = ({
             style={styles.topGlow}
           />
 
+          {onClose && (
+            <TouchableOpacity 
+              style={styles.closeBtn} 
+              onPress={onClose}
+              activeOpacity={0.7}
+            >
+              <Icon name="close" size={24} color="rgba(255,255,255,0.4)" />
+            </TouchableOpacity>
+          )}
+
           <View style={styles.content}>
             {/* Icon */}
-            <View style={styles.iconContainer}>
-              <LinearGradient
-                colors={['rgba(167,139,250,0.2)', 'rgba(118,75,162,0.2)']}
-                style={styles.iconBg}
-              >
-                <Icon name={iconName} size={40} color={iconColor} />
-              </LinearGradient>
-            </View>
+            {iconName && (
+              <View style={styles.iconContainer}>
+                <LinearGradient
+                  colors={['rgba(167,139,250,0.2)', 'rgba(118,75,162,0.2)']}
+                  style={styles.iconBg}
+                >
+                  <Icon name={iconName} size={40} color={iconColor} />
+                </LinearGradient>
+              </View>
+            )}
 
             <Text style={styles.title}>{title}</Text>
             {message && <Text style={styles.message}>{message}</Text>}
@@ -127,6 +142,18 @@ const styles = StyleSheet.create({
     shadowRadius: 40,
     elevation: 20,
     backgroundColor: '#0F0C29',
+  },
+  closeBtn: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    zIndex: 20,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   content: {
     padding: 28,

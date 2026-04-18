@@ -272,9 +272,8 @@ const AudioTestScreen = () => {
         visible={testModal}
         title={currentCheck?.title || ''}
         message=""
-        iconName={currentCheck?.icon || ''}
-        iconColor={currentCheck?.iconColor}
         showButtons={false}
+        onClose={() => setTestModal(false)}
       >
         <View style={styles.modalContent}>
           {currentCheck?.id === 'microphone' ? (
@@ -302,16 +301,16 @@ const AudioTestScreen = () => {
                   />
                   <View style={styles.resultRow}>
                     <GlassButton 
-                      title="Clear & Correct" 
+                      title="Done" 
                       onPress={() => { markStatus('microphone', 'pass'); setTestModal(false); }} 
                       variant="success" 
                       style={{ flex: 1 }} 
                     />
                     <GlassButton 
                       title="Fail" 
-                      onPress={() => { markStatus('microphone', 'fail'); setTestModal(false); }} 
+                      onPress={() => setTestModal(false)} 
                       variant="danger" 
-                      style={{ width: 80 }} 
+                      style={{ flex: 1 }} 
                     />
                   </View>
                 </View>
@@ -352,8 +351,8 @@ const AudioTestScreen = () => {
                   </TouchableOpacity>
                   
                   <View style={styles.modalActionRow}>
-                    <GlassButton title="Verify" onPress={handleVerify} variant="primary" style={{ flex: 1 }} />
-                    <GlassButton title="Fail" onPress={() => { markStatus(currentCheck?.id || '', 'fail'); setTestModal(false); }} variant="danger" style={{ width: 80 }} />
+                    <GlassButton title="Done" onPress={handleVerify} variant="primary" style={{ flex: 1 }} />
+                    <GlassButton title="Fail" onPress={() => setTestModal(false)} variant="danger" style={{ flex: 1 }} />
                   </View>
                 </>
               )}

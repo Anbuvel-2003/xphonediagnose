@@ -206,7 +206,7 @@ const PermissionsScreen = () => {
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <SafeAreaView style={styles.safe}>
         <ScreenHeader
-          title="Setup & Permissions"
+          title="Permissions"
           subtitle="Compulsory hardware & permission check"
           step={1}
           onBack={() => navigation.goBack()}
@@ -235,7 +235,7 @@ const PermissionsScreen = () => {
                     <View style={styles.permTitleRow}>
                       <Text style={styles.permTitle}>{perm.title}</Text>
                       <View style={styles.requiredBadge}>
-                        <Text style={styles.requiredText}>Compulsory</Text>
+                        <Text style={styles.requiredText}>required</Text>
                       </View>
                     </View>
                     <Text style={styles.permDesc}>{perm.description}</Text>
@@ -279,7 +279,7 @@ const PermissionsScreen = () => {
           }
           iconName={currentPermission.icon}
           iconColor={currentPermission.iconColor}
-          confirmText={statuses[currentPermission.id] === 'disabled' ? 'Turn ON' : 'Allow Access'}
+          confirmText={statuses[currentPermission.id] === 'disabled' ? 'Turn ON' : 'Allow'}
           cancelText="Cancel"
           onConfirm={() => requestPermission(currentPermission)}
           onCancel={() => setModalVisible(false)}

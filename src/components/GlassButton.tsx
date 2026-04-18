@@ -35,9 +35,9 @@ const VARIANT_GRADIENTS: Record<string, string[]> = {
 };
 
 const SIZE_STYLES: Record<string, { paddingVertical: number; paddingHorizontal: number; borderRadius: number; fontSize: number }> = {
-  sm: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 10, fontSize: 13 },
-  md: { paddingVertical: 14, paddingHorizontal: 24, borderRadius: 14, fontSize: 15 },
-  lg: { paddingVertical: 18, paddingHorizontal: 32, borderRadius: 18, fontSize: 17 },
+  sm: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, fontSize: 13 },
+  md: { paddingVertical: 14, paddingHorizontal: 12, borderRadius: 14, fontSize: 15 },
+  lg: { paddingVertical: 18, paddingHorizontal: 24, borderRadius: 18, fontSize: 17 },
 };
 
 const GlassButton: React.FC<GlassButtonProps> = ({
@@ -86,7 +86,6 @@ const GlassButton: React.FC<GlassButtonProps> = ({
         ) : null}
         <Text
           style={[styles.text, { fontSize: sizeStyle.fontSize }, textStyle]}
-          numberOfLines={1}
         >
           {title}
         </Text>
@@ -119,6 +118,8 @@ const styles = StyleSheet.create({
     color: TEXT.primary,
     fontWeight: '800',
     letterSpacing: 0.5,
+    textAlign: 'center',
+    flexShrink: 1,
   },
   disabled: {
     opacity: 0.45,
